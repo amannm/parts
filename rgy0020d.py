@@ -106,7 +106,6 @@ def _union_solids(solids: list[cq.Workplane]) -> cq.Workplane | None:
 
 def build_model(params: RGY0020DParams) -> cq.Workplane:
     body = _build_body(params)
-
     layout = _lead_layout(params)
     lead_dims = _lead_dims(params)
     grounded = _grounded_lead_spec(params)
@@ -114,7 +113,6 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
     grounded_indices = grounded_td_indices(
         layout.leads_per_td_side, params.leads_grounded_per_td_side
     )
-
     leads_for_cut = rectangular_lead_instances(
         layout, lead_dims, prefix="cut", dimple=None, grounded=grounded
     )
@@ -123,11 +121,9 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
     )
     for _, lead in leads_for_cut:
         body = body.cut(lead)
-
     model = body
     for _, lead in leads:
         model = model.union(lead)
-
     for _, solid in thermal_pad_solids_for_params(
             params,
             layout=layout,
@@ -135,7 +131,6 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
             grounded_indices=grounded_indices,
     ):
         model = model.union(solid)
-
     return model
 
 
@@ -169,7 +164,6 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
             grounded_leads.append(lead)
         else:
             assembly.add(lead, name=name)
-
     pad_solids: list[cq.Workplane] = []
     for _, solid in thermal_pad_solids_for_params(
             params,
@@ -184,10 +178,8 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
         grounded_union = (
             pad_union if grounded_union is None else grounded_union.union(pad_union)
         )
-
     if grounded_union is not None:
         assembly.add(grounded_union, name="grounded_pad")
-
     return assembly
 
 

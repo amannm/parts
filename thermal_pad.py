@@ -42,13 +42,11 @@ def _chamfer_pin1_pad_corner(
     half_y = pad_y / 2
     max_chamfer = min(half_x, half_y) * 0.99
     c = min(chamfer, max_chamfer)
-    # Pin 1 corner assumed at (-X, +Y), matching QFN pin 1 marker orientation.
     corner = (-half_x, half_y, pad_thickness / 2)
     return pad.edges(selectors.NearestToPointSelector(corner)).chamfer(c)
 
 
 def build_thermal_pad(params: ThermalPadParams) -> cq.Workplane:
-    """Build the exposed thermal/ground pad on the bottom."""
     pad = (
         cq.Workplane("XY")
         .box(params.thermal_pad_x, params.thermal_pad_y, params.thermal_pad_thickness)
@@ -81,7 +79,6 @@ def thermal_pad_solids(
         return solids
     if len(grounded_indices) < 2:
         return solids
-
     td_positions = positions(layout.leads_per_td_side, layout.pitch)
     grounded_positions = [td_positions[idx - 1] for idx in sorted(grounded_indices)]
     inner_pair = sorted(sorted(grounded_positions, key=abs)[:2])
@@ -91,7 +88,6 @@ def thermal_pad_solids(
     strip_width = x_max - x_min
     if strip_width <= 0:
         return solids
-
     strip_center_x = (x_min + x_max) / 2
     z_center = pad.thickness / 2
     y_top = pad.y / 2 + strip_length / 2
