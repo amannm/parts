@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
+from cadquery import selectors
 
 from pin import (
     LeadDims,
@@ -41,9 +42,10 @@ class QFNParams:
     thermal_pad_x: float = 3.6  # D2 (3.5-3.7, nom 3.6)
     thermal_pad_y: float = 3.6  # E2 (3.5-3.7, nom 3.6)
     thermal_pad_thickness: float = 0.08  # A3 (nom 0.08)
+    thermal_pad_pin1_chamfer: float = 0.35  # Chamfer on pin 1 corner (0 disables)
 
     # Lead chamfer (K dimension from spec, applied to outer corners)
-    lead_chamfer: float = 0.1  # Chamfer on outer corners of leads
+    lead_chamfer: float = 0.07  # Chamfer on outer corners of leads
 
     # Pin 1 marker
     pin1_marker_diameter: float = 0.4
@@ -105,6 +107,14 @@ def _build_thermal_pad(params: QFNParams) -> cq.Workplane:
         .box(params.thermal_pad_x, params.thermal_pad_y, params.thermal_pad_thickness)
         .translate((0, 0, params.thermal_pad_thickness / 2))
     )
+    if params.thermal_pad_pin1_chamfer > 0:
+        half_x = params.thermal_pad_x / 2
+        half_y = params.thermal_pad_y / 2
+        max_chamfer = min(half_x, half_y) * 0.99
+        chamfer = min(params.thermal_pad_pin1_chamfer, max_chamfer)
+        # Pin 1 marker is at (-X, +Y); chamfer the matching pad corner.
+        corner = (-half_x, half_y, params.thermal_pad_thickness / 2)
+        pad = pad.edges(selectors.NearestToPointSelector(corner)).chamfer(chamfer)
     return pad
 
 
