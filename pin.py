@@ -34,7 +34,8 @@ class LeadDimple:
 class GroundedLeadSpec:
     count_per_td_side: int
     length: float | None = None
-    profile: Literal["flat", "rounded"] = "flat"
+    profile: Literal["flat", "rounded", "chamfered"] = "flat"
+    chamfer: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,29 @@ def flat_lead(length: float, width: float, height: float) -> cq.Workplane:
     )
 
 
+def chamfered_lead(
+    length: float, width: float, height: float, chamfer: float
+) -> cq.Workplane:
+    """Create a lead with chamfered inner corners (inner edge = -X side, facing package body)."""
+    half_w = width / 2.0
+    half_l = length / 2.0
+    # Clamp chamfer to ensure valid geometry
+    max_chamfer = min(half_w, half_l) * 0.99
+    c = min(chamfer, max_chamfer)
+    if c <= 0:
+        return flat_lead(length, width, height)
+    # Build rectangular profile and chamfer inner corners
+    profile = (
+        cq.Workplane("XY")
+        .rect(length, width)
+        .extrude(height)
+        .faces("<X")
+        .edges("|Z")
+        .chamfer(c, c/2)
+    )
+    return profile
+
+
 def grounded_td_indices(leads_per_td_side: int, grounded_per_td_side: int) -> set[int]:
     grounded_count = max(0, min(grounded_per_td_side, leads_per_td_side))
     grounded_start = (leads_per_td_side - grounded_count) // 2
@@ -111,17 +135,25 @@ def rectangular_lead_instances(
     prefix: str = "lead",
     dimple: LeadDimple | None = None,
     grounded: GroundedLeadSpec | None = None,
+    profile: Literal["flat", "rounded", "chamfered"] = "rounded",
+    chamfer: float = 0.0,
 ) -> list[tuple[str, cq.Workplane]]:
-    def make_lead(length: float, profile: Literal["flat", "rounded"]) -> cq.Workplane:
-        if profile == "flat":
+    def make_lead(
+        length: float,
+        prof: Literal["flat", "rounded", "chamfered"],
+        cham: float = 0.0,
+    ) -> cq.Workplane:
+        if prof == "flat":
             shape = flat_lead(length, lead.width, lead.height)
-        elif profile == "rounded":
+        elif prof == "rounded":
             shape = rounded_lead(length, lead.width, lead.height)
+        elif prof == "chamfered":
+            shape = chamfered_lead(length, lead.width, lead.height, cham)
         else:
-            raise ValueError(f"Unsupported lead profile: {profile}")
+            raise ValueError(f"Unsupported lead profile: {prof}")
         return _apply_dimple(shape, dimple, length)
 
-    base_lead = make_lead(lead.length, "rounded")
+    base_lead = make_lead(lead.length, profile, chamfer)
     leads: list[tuple[str, cq.Workplane]] = []
 
     lr_positions = positions(layout.leads_per_lr_side, layout.pitch)
@@ -135,16 +167,18 @@ def rectangular_lead_instances(
 
     grounded_indices: set[int] = set()
     grounded_length = lead.length
-    grounded_profile: Literal["flat", "rounded"] = "rounded"
+    grounded_profile: Literal["flat", "rounded", "chamfered"] = profile
+    grounded_chamfer = chamfer
     if grounded is not None:
         grounded_indices = grounded_td_indices(
             layout.leads_per_td_side, grounded.count_per_td_side
         )
         grounded_length = grounded.length if grounded.length is not None else lead.length
         grounded_profile = grounded.profile
+        grounded_chamfer = grounded.chamfer if grounded.chamfer > 0 else chamfer
 
     grounded_lead = (
-        make_lead(grounded_length, grounded_profile)
+        make_lead(grounded_length, grounded_profile, grounded_chamfer)
         if grounded_indices
         else base_lead
     )
