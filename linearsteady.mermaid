@@ -9,7 +9,7 @@ flowchart TD
   BCS[BC spec]
   BCB[BC builder]
   PHYS[UFL model]
-  ASM[Assemble + apply BCs]
+  ASSY[Assemble + apply BCs]
   SOLVE[PETSc solve]
   OUT[Outputs]
 
@@ -30,12 +30,12 @@ flowchart TD
   IM -->|mesh + facet_tags| BCB
   FS -->|V| BCB
   BCB -->|natural_terms| PHYS
-  BCB -->|dirichlet_bcs| ASM
+  BCB -->|dirichlet_bcs| ASSY
 
   U -->|phys_spec| PHYS
   FS -->|V, u, v, dx, ds| PHYS
 
-  PHYS -->|"a(u,v), L(v)"| ASM
-  ASM -->|A, b| SOLVE
+  PHYS -->|"a(u,v), L(v)"| ASSY
+  ASSY -->|A_bc, b_bc| SOLVE
   U -->|solver_params| SOLVE
   SOLVE -->|u_sol, solve_info| OUT
