@@ -1,25 +1,21 @@
 flowchart LR
     U([User])
-    subgraph Pre["Pre-processing"]
+
         CQ["CadQuery\nbuild CAD"]
         GM["Gmsh\nphysical groups + meshing"]
         IM["Import\nGmsh → DOLFINx"]
-    end
-    subgraph FE["FE setup"]
+
         FS["Spaces & measures"]
         MDB["MatDB\ntag → params"]
         CF["Coeff-field builder"]
         BCS["BC spec"]
         BCB["BC builder"]
-    end
-    subgraph Model["Model"]
+
         PHYS["UFL model"]
-    end
-    subgraph Solve["Solve"]
-        direction TB
+
         PROB["NonlinearProblem"]
         SNES["PETSc SNES solve"]
-    end
+
     OUT["Outputs"]
 %% Geometry + mesh
     U -- geom_params --> CQ

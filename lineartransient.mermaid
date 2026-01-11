@@ -1,30 +1,19 @@
 flowchart LR
     U([User])
-    subgraph Pre["Pre-processing"]
-        CQ["CadQuery\nbuild CAD"]
-        GM["Gmsh\nphysical groups + meshing"]
-        IM["Import\nGmsh → DOLFINx"]
-    end
-    subgraph FE["FE setup"]
-        FS["Spaces & measures"]
-        MDB["MatDB\ntag → params"]
-        CF["Coeff-field builder"]
-        BCS["BC spec"]
-        BCB["BC builder"]
-        IC["IC init"]
-    end
-    subgraph Model["Model"]
-        PHYS["UFL model"]
-    end
-    subgraph Time["Time stepping"]
-        STEP["Instantiate step forms"]
-        ADV["Advance state"]
-    end
-    subgraph Solve["Solve"]
-        direction TB
-        ASSY["Assemble + apply BCs"]
-        KSP["PETSc KSP solve"]
-    end
+    CQ["CadQuery\nbuild CAD"]
+    GM["Gmsh\nphysical groups + meshing"]
+    IM["Import\nGmsh → DOLFINx"]
+    FS["Spaces & measures"]
+    MDB["MatDB\ntag → params"]
+    CF["Coeff-field builder"]
+    BCS["BC spec"]
+    BCB["BC builder"]
+    IC["IC init"]
+    PHYS["UFL model"]
+    STEP["Instantiate step forms"]
+    ADV["Advance state"]
+    ASSY["Assemble + apply BCs"]
+    KSP["PETSc KSP solve"]
     OUT["Outputs"]
 %% Geometry + mesh
     U -- geom_params --> CQ
