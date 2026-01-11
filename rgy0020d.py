@@ -5,18 +5,16 @@ from pathlib import Path
 import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
 from cadquery.vis import show
-from cadquery import selectors
 
 from pin import (
     GroundedLeadSpec,
     LeadDims,
     LeadDimple,
     LeadLayout,
-    ThermalPadSpec,
     grounded_td_indices,
     rectangular_lead_instances,
-    thermal_pad_solids,
 )
+from thermal_pad import thermal_pad_solids_for_params
 
 
 @dataclass(frozen=True)
@@ -49,25 +47,6 @@ class RGY0020DParams:
     thermal_pad_td_center_strip: float = (4.2 - thermal_pad_y) / 2
     thermal_pad_thickness: float = 0.05
     thermal_pad_pin1_chamfer: float = 0.25  # Chamfer on pin 1 corner (0 disables)
-
-
-def _chamfer_pin1_pad_corner(
-    pad: cq.Workplane,
-    *,
-    pad_x: float,
-    pad_y: float,
-    pad_thickness: float,
-    chamfer: float,
-) -> cq.Workplane:
-    if chamfer <= 0:
-        return pad
-    half_x = pad_x / 2
-    half_y = pad_y / 2
-    max_chamfer = min(half_x, half_y) * 0.99
-    c = min(chamfer, max_chamfer)
-    # Pin 1 corner assumed at (-X, +Y), matching QFN pin 1 marker orientation.
-    corner = (-half_x, half_y, pad_thickness / 2)
-    return pad.edges(selectors.NearestToPointSelector(corner)).chamfer(c)
 
 
 def _build_body(params: RGY0020DParams) -> cq.Workplane:
@@ -109,21 +88,12 @@ def _lead_dimple(params: RGY0020DParams) -> LeadDimple:
 
 def _grounded_lead_spec(params: RGY0020DParams) -> GroundedLeadSpec:
     grounded_length = (params.body_y / 2 - params.lead_setback) - (
-        params.thermal_pad_y / 2
+            params.thermal_pad_y / 2
     )
     return GroundedLeadSpec(
         count_per_td_side=params.leads_grounded_per_td_side,
         length=grounded_length,
         profile="flat",
-    )
-
-
-def _thermal_pad(params: RGY0020DParams) -> ThermalPadSpec:
-    return ThermalPadSpec(
-        x=params.thermal_pad_x,
-        y=params.thermal_pad_y,
-        thickness=params.thermal_pad_thickness,
-        td_center_strip=params.thermal_pad_td_center_strip,
     )
 
 
@@ -158,20 +128,12 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
     for _, lead in leads:
         model = model.union(lead)
 
-    for name, solid in thermal_pad_solids(
-        _thermal_pad(params),
-        layout=layout,
-        lead_width=params.lead_width,
-        grounded_indices=grounded_indices,
+    for _, solid in thermal_pad_solids_for_params(
+            params,
+            layout=layout,
+            lead_width=params.lead_width,
+            grounded_indices=grounded_indices,
     ):
-        if name == "thermal_pad":
-            solid = _chamfer_pin1_pad_corner(
-                solid,
-                pad_x=params.thermal_pad_x,
-                pad_y=params.thermal_pad_y,
-                pad_thickness=params.thermal_pad_thickness,
-                chamfer=params.thermal_pad_pin1_chamfer,
-            )
         model = model.union(solid)
 
     return model
@@ -209,20 +171,12 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
             assembly.add(lead, name=name)
 
     pad_solids: list[cq.Workplane] = []
-    for name, solid in thermal_pad_solids(
-        _thermal_pad(params),
-        layout=layout,
-        lead_width=params.lead_width,
-        grounded_indices=grounded_indices,
+    for _, solid in thermal_pad_solids_for_params(
+            params,
+            layout=layout,
+            lead_width=params.lead_width,
+            grounded_indices=grounded_indices,
     ):
-        if name == "thermal_pad":
-            solid = _chamfer_pin1_pad_corner(
-                solid,
-                pad_x=params.thermal_pad_x,
-                pad_y=params.thermal_pad_y,
-                pad_thickness=params.thermal_pad_thickness,
-                chamfer=params.thermal_pad_pin1_chamfer,
-            )
         pad_solids.append(solid)
     pad_union = _union_solids(pad_solids)
     grounded_union = _union_solids(grounded_leads)

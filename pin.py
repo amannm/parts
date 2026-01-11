@@ -38,14 +38,6 @@ class GroundedLeadSpec:
     chamfer: float = 0.0
 
 
-@dataclass(frozen=True)
-class ThermalPadSpec:
-    x: float
-    y: float
-    thickness: float
-    td_center_strip: float = 0.0
-
-
 def positions(count: int, pitch: float) -> list[float]:
     if count <= 0:
         return []
@@ -80,15 +72,12 @@ def flat_lead(length: float, width: float, height: float) -> cq.Workplane:
 def chamfered_lead(
     length: float, width: float, height: float, chamfer: float
 ) -> cq.Workplane:
-    """Create a lead with chamfered inner corners (inner edge = -X side, facing package body)."""
     half_w = width / 2.0
     half_l = length / 2.0
-    # Clamp chamfer to ensure valid geometry
     max_chamfer = min(half_w, half_l) * 0.99
     c = min(chamfer, max_chamfer)
     if c <= 0:
         return flat_lead(length, width, height)
-    # Build rectangular profile and chamfer inner corners
     profile = (
         cq.Workplane("XY")
         .rect(length, width)
@@ -113,9 +102,9 @@ def lead_dimple_cut(dimple: LeadDimple, lead_offset: float) -> cq.Workplane:
         .box(dimple.depth, dimple.width, dimple.height, centered=(False, True, False))
         .translate((lead_offset, 0, 0))
     )
-    e_on_Z = wp.faces(">Z").edges("|X or >X")
-    e_on_X = wp.faces(">X").edges("|Z or >Z")
-    return e_on_Z.add(e_on_X).fillet(radius)
+    e_on_z = wp.faces(">Z").edges("|X or >X")
+    e_on_x = wp.faces(">X").edges("|Z or >Z")
+    return e_on_z.add(e_on_x).fillet(radius)
 
 
 def _apply_dimple(
@@ -152,10 +141,8 @@ def rectangular_lead_instances(
         else:
             raise ValueError(f"Unsupported lead profile: {prof}")
         return _apply_dimple(shape, dimple, length)
-
     base_lead = make_lead(lead.length, profile, chamfer)
     leads: list[tuple[str, cq.Workplane]] = []
-
     lr_positions = positions(layout.leads_per_lr_side, layout.pitch)
     x_left = -layout.body_x / 2 + layout.setback + lead.length / 2
     x_right = layout.body_x / 2 - layout.setback - lead.length / 2
@@ -164,7 +151,6 @@ def rectangular_lead_instances(
         right = base_lead.rotate((0, 0, 0), (0, 0, 1), 180).translate((x_right, y, 0))
         leads.append((f"{prefix}_L{idx}", left))
         leads.append((f"{prefix}_R{idx}", right))
-
     grounded_indices: set[int] = set()
     grounded_length = lead.length
     grounded_profile: Literal["flat", "rounded", "chamfered"] = profile
@@ -176,13 +162,11 @@ def rectangular_lead_instances(
         grounded_length = grounded.length if grounded.length is not None else lead.length
         grounded_profile = grounded.profile
         grounded_chamfer = grounded.chamfer if grounded.chamfer > 0 else chamfer
-
     grounded_lead = (
         make_lead(grounded_length, grounded_profile, grounded_chamfer)
         if grounded_indices
         else base_lead
     )
-
     td_positions = positions(layout.leads_per_td_side, layout.pitch)
     for idx, x in enumerate(td_positions, start=1):
         use_grounded = idx in grounded_indices
@@ -194,46 +178,5 @@ def rectangular_lead_instances(
         bottom = lead_solid.rotate((0, 0, 0), (0, 0, 1), 90).translate((x, y_bottom, 0))
         leads.append((f"{prefix}_T{idx}", top))
         leads.append((f"{prefix}_B{idx}", bottom))
-
     return leads
 
-
-def thermal_pad_solids(
-    pad: ThermalPadSpec,
-    *,
-    layout: LeadLayout,
-    lead_width: float,
-    grounded_indices: set[int],
-) -> list[tuple[str, cq.Workplane]]:
-    pad_solid = (
-        cq.Workplane("XY")
-        .box(pad.x, pad.y, pad.thickness)
-        .translate((0, 0, pad.thickness / 2))
-    )
-    solids: list[tuple[str, cq.Workplane]] = [("thermal_pad", pad_solid)]
-    strip_length = pad.td_center_strip
-    if strip_length <= 0:
-        return solids
-    if len(grounded_indices) < 2:
-        return solids
-
-    td_positions = positions(layout.leads_per_td_side, layout.pitch)
-    grounded_positions = [td_positions[idx - 1] for idx in sorted(grounded_indices)]
-    inner_pair = sorted(sorted(grounded_positions, key=abs)[:2])
-    left_center, right_center = inner_pair
-    x_min = left_center + lead_width / 2
-    x_max = right_center - lead_width / 2
-    strip_width = x_max - x_min
-    if strip_width <= 0:
-        return solids
-
-    strip_center_x = (x_min + x_max) / 2
-    z_center = pad.thickness / 2
-    y_top = pad.y / 2 + strip_length / 2
-    y_bottom = -pad.y / 2 - strip_length / 2
-    strip_profile = cq.Workplane("XY").box(strip_width, strip_length, pad.thickness)
-    strip_top = strip_profile.translate((strip_center_x, y_top, z_center))
-    strip_bottom = strip_profile.translate((strip_center_x, y_bottom, z_center))
-    solids.append(("thermal_pad_strip_top", strip_top))
-    solids.append(("thermal_pad_strip_bottom", strip_bottom))
-    return solids

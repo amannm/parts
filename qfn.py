@@ -5,13 +5,9 @@ from pathlib import Path
 
 import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
-from cadquery import selectors
 
-from pin import (
-    LeadDims,
-    LeadLayout,
-    rectangular_lead_instances,
-)
+from pin import LeadDims, LeadLayout, rectangular_lead_instances
+from thermal_pad import build_thermal_pad
 
 
 @dataclass(frozen=True)
@@ -100,24 +96,6 @@ def _lead_dims(params: QFNParams) -> LeadDims:
     )
 
 
-def _build_thermal_pad(params: QFNParams) -> cq.Workplane:
-    """Build the exposed thermal/ground pad on the bottom."""
-    pad = (
-        cq.Workplane("XY")
-        .box(params.thermal_pad_x, params.thermal_pad_y, params.thermal_pad_thickness)
-        .translate((0, 0, params.thermal_pad_thickness / 2))
-    )
-    if params.thermal_pad_pin1_chamfer > 0:
-        half_x = params.thermal_pad_x / 2
-        half_y = params.thermal_pad_y / 2
-        max_chamfer = min(half_x, half_y) * 0.99
-        chamfer = min(params.thermal_pad_pin1_chamfer, max_chamfer)
-        # Pin 1 marker is at (-X, +Y); chamfer the matching pad corner.
-        corner = (-half_x, half_y, params.thermal_pad_thickness / 2)
-        pad = pad.edges(selectors.NearestToPointSelector(corner)).chamfer(chamfer)
-    return pad
-
-
 def build_model(params: QFNParams | None = None) -> cq.Workplane:
     """Build a unified QFN package model.
 
@@ -157,7 +135,7 @@ def build_model(params: QFNParams | None = None) -> cq.Workplane:
         model = model.union(lead)
 
     # Add thermal pad
-    thermal_pad = _build_thermal_pad(params)
+    thermal_pad = build_thermal_pad(params)
     model = model.union(thermal_pad)
 
     return model
@@ -201,7 +179,7 @@ def build_assembly(params: QFNParams | None = None) -> cq.Assembly:
     for name, lead in leads:
         assembly.add(lead, name=name)
 
-    thermal_pad = _build_thermal_pad(params)
+    thermal_pad = build_thermal_pad(params)
     assembly.add(thermal_pad, name="thermal_pad")
 
     return assembly
