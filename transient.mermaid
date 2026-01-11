@@ -11,8 +11,17 @@ flowchart TD
   PHYS[UFL model]
   IC[IC init]
   STEP[Instantiate step forms]
-  ASSY[Assemble + apply BCs]
-  SOLVE[PETSc solve]
+
+  subgraph Linear["Linear solve path"]
+    ASSY[Assemble + apply BCs]
+    SOLVE[PETSc KSP solve]
+  end
+
+  subgraph Nonlinear["Nonlinear solve path"]
+    PROB[NonlinearProblem]
+    SNES[PETSc SNES solve]
+  end
+
   ADV[Advance state]
   OUT[Outputs]
 
@@ -42,11 +51,18 @@ flowchart TD
   CF -->|coeff_fields| STEP
   FS -->|V, u, v, dx, ds| STEP
   BCB -->|natural_terms| STEP
-  PHYS -->|form_template| STEP
+  PHYS -->|form templates| STEP
 
-  STEP -->|a_step, L_step| ASSY
+  STEP -->|linear: a_step, L_step| ASSY
   BCB -->|dirichlet_bcs| ASSY
   ASSY -->|A_bc, b_bc| SOLVE
   U -->|solver_params| SOLVE
   SOLVE -->|"u_{n+1}, solve_info"| ADV
+
+  STEP -->|"nonlinear: F(u), J(u)"| PROB
+  BCB -->|dirichlet_bcs| PROB
+  PROB -->|assemble callbacks| SNES
+  U -->|solver_params| SNES
+  SNES -->|"u_{n+1}, solve_info"| ADV
+
   ADV -->|outputs| OUT
