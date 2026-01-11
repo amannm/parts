@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+
 import cadquery as cq
-from cadquery.occ_impl.exporters import assembly as asm_export
 from cadquery.vis import show
 
+from features.body import build_body, export_step, union_solids
 from features.pin import (
     GroundedLeadSpec,
     LeadDims,
@@ -53,16 +54,6 @@ class RGY0020DParams:
     thermal_pad_pin1_chamfer: float = 0.25  # Chamfer on pin 1 corner (0 disables)
 
 
-def _build_body(params: RGY0020DParams) -> cq.Workplane:
-    body_thickness = params.body_height - params.standoff
-    body = (
-        cq.Workplane("XY")
-        .box(params.body_x, params.body_y, body_thickness)
-        .translate((0, 0, params.standoff + body_thickness / 2))
-    )
-    return body
-
-
 def _lead_layout(params: RGY0020DParams) -> LeadLayout:
     return LeadLayout(
         body_x=params.body_x,
@@ -101,15 +92,8 @@ def _grounded_lead_spec(params: RGY0020DParams) -> GroundedLeadSpec:
     )
 
 
-def _union_solids(solids: list[cq.Workplane]) -> cq.Workplane | None:
-    result = None
-    for solid in solids:
-        result = solid if result is None else result.union(solid)
-    return result
-
-
 def build_model(params: RGY0020DParams) -> cq.Workplane:
-    body = _build_body(params)
+    body = build_body(params)
     layout = _lead_layout(params)
     lead_dims = _lead_dims(params)
     grounded = _grounded_lead_spec(params)
@@ -137,7 +121,7 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
 
 def build_assembly(params: RGY0020DParams) -> cq.Assembly:
     assembly = cq.Assembly()
-    body = _build_body(params)
+    body = build_body(params)
     layout = _lead_layout(params)
     lead_dims = _lead_dims(params)
     grounded = _grounded_lead_spec(params)
@@ -167,8 +151,8 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
             grounded_indices=grounded_indices,
     ):
         pad_solids.append(solid)
-    pad_union = _union_solids(pad_solids)
-    grounded_union = _union_solids(grounded_leads)
+    pad_union = union_solids(pad_solids)
+    grounded_union = union_solids(grounded_leads)
     if pad_union is not None:
         grounded_union = (
             pad_union if grounded_union is None else grounded_union.union(pad_union)
@@ -176,14 +160,6 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
     if grounded_union is not None:
         assembly.add(grounded_union, name="grounded_pad")
     return assembly
-
-
-def export_step(model: cq.Workplane | cq.Assembly, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(model, cq.Assembly):
-        asm_export.exportAssembly(model, str(out_path))
-    else:
-        cq.exporters.export(model, str(out_path))
 
 
 if __name__ == "__main__":

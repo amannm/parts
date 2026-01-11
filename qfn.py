@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cadquery as cq
-from cadquery.occ_impl.exporters import assembly as asm_export
 
+from features.body import build_body, circular_pin1_marker, export_step
 from features.pin import (
     LeadDims,
     LeadLayout,
@@ -49,28 +49,16 @@ class QFNParams:
     pin1_marker_depth: float = 0.1
 
 
-def _build_body(params: QFNParams) -> cq.Workplane:
-    body_thickness = params.body_height - params.standoff
-    body = (
-        cq.Workplane("XY")
-        .box(params.body_x, params.body_y, body_thickness)
-        .translate((0, 0, params.standoff + body_thickness / 2))
-    )
-    return body
-
-
 def _build_pin1_marker(params: QFNParams) -> cq.Workplane:
     marker_x = -params.body_x / 2 + params.body_x * 0.15
     marker_y = params.body_y / 2 - params.body_y * 0.15
-    marker_z = params.body_height
-    marker = (
-        cq.Workplane("XY")
-        .workplane(offset=marker_z)
-        .moveTo(marker_x, marker_y)
-        .circle(params.pin1_marker_diameter / 2)
-        .extrude(-params.pin1_marker_depth)
+    return circular_pin1_marker(
+        center_x=marker_x,
+        center_y=marker_y,
+        body_height=params.body_height,
+        diameter=params.pin1_marker_diameter,
+        depth=params.pin1_marker_depth,
     )
-    return marker
 
 
 def _lead_layout(params: QFNParams) -> LeadLayout:
@@ -95,7 +83,7 @@ def _lead_dims(params: QFNParams) -> LeadDims:
 def build_model(params: QFNParams | None = None) -> cq.Workplane:
     if params is None:
         params = QFNParams()
-    body = _build_body(params)
+    body = build_body(params)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
     layout = _lead_layout(params)
@@ -119,7 +107,7 @@ def build_assembly(params: QFNParams | None = None) -> cq.Assembly:
     if params is None:
         params = QFNParams()
     assembly = cq.Assembly()
-    body = _build_body(params)
+    body = build_body(params)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
     layout = _lead_layout(params)
@@ -138,14 +126,6 @@ def build_assembly(params: QFNParams | None = None) -> cq.Assembly:
     thermal_pad = build_thermal_pad(params)
     assembly.add(thermal_pad, name="thermal_pad")
     return assembly
-
-
-def export_step(model: cq.Workplane | cq.Assembly, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(model, cq.Assembly):
-        asm_export.exportAssembly(model, str(out_path))
-    else:
-        cq.exporters.export(model, str(out_path))
 
 
 QFN40_5x5 = QFNParams()

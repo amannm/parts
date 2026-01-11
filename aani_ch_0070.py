@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cadquery as cq
-from cadquery.occ_impl.exporters import assembly as asm_export
+
+from features.body import build_body, export_step, square_pin1_marker
 
 
 @dataclass(frozen=True)
@@ -21,33 +22,20 @@ class ChipAntennaParams:
     pad_setback_x: float = 0.08  # Setback from X edges (0.08 +0.10/-0.05)
 
     # Pin 1 marker
-    pin1_marker_size: float = 0.1
+    pin1_marker_size: float = 0.2
     pin1_marker_depth: float = 0.05
 
 
-def _build_body(params: ChipAntennaParams) -> cq.Workplane:
-    body = (
-        cq.Workplane("XY")
-        .box(params.body_x, params.body_y, params.body_height)
-        .edges("|Z")
-        .fillet(0.025)
-        .translate((0, 0, params.body_height / 2))
-    )
-    return body
-
-
 def _build_pin1_marker(params: ChipAntennaParams) -> cq.Workplane:
-    marker_x = -params.body_x / 2 + params.pad_length / 2 + 0.05
-    marker_y = -params.body_y / 2 + params.pad_width / 2 + 0.05
-    marker_z = params.body_height
-    marker = (
-        cq.Workplane("XY")
-        .workplane(offset=marker_z)
-        .moveTo(marker_x, marker_y)
-        .rect(params.pin1_marker_size, params.pin1_marker_size)
-        .extrude(-params.pin1_marker_depth)
+    marker_x = -params.body_x / 2 + params.body_x * 0.276
+    marker_y = 0.0
+    return square_pin1_marker(
+        center_x=marker_x,
+        center_y=marker_y,
+        body_height=params.body_height,
+        size=params.pin1_marker_size,
+        depth=params.pin1_marker_depth,
     )
-    return marker
 
 
 def _build_pad(
@@ -75,7 +63,7 @@ def _build_pads(params: ChipAntennaParams) -> list[tuple[str, cq.Workplane]]:
 def build_model(params: ChipAntennaParams | None = None) -> cq.Workplane:
     if params is None:
         params = ChipAntennaParams()
-    body = _build_body(params)
+    body = build_body(params, fillet=0.025)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
     model = body
@@ -89,7 +77,7 @@ def build_assembly(params: ChipAntennaParams | None = None) -> cq.Assembly:
     if params is None:
         params = ChipAntennaParams()
     assembly = cq.Assembly()
-    body = _build_body(params)
+    body = build_body(params, fillet=0.025)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
     assembly.add(body, name="body")
@@ -97,14 +85,6 @@ def build_assembly(params: ChipAntennaParams | None = None) -> cq.Assembly:
     for name, pad in pads:
         assembly.add(pad, name=name)
     return assembly
-
-
-def export_step(model: cq.Workplane | cq.Assembly, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(model, cq.Assembly):
-        asm_export.exportAssembly(model, str(out_path))
-    else:
-        cq.exporters.export(model, str(out_path))
 
 
 AANI_CH_0070 = ChipAntennaParams()
