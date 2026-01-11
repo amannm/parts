@@ -111,7 +111,6 @@ AANI_CH_0070 = ChipAntennaParams()
 
 if __name__ == "__main__":
     from cadquery.vis import show
-
     params = AANI_CH_0070
     result = build_assembly(params)
     export_step(result, Path("aani_ch_0070.step"))

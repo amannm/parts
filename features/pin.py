@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+import re
+from typing import Iterable, Literal
 
 import cadquery as cq
 
@@ -36,6 +37,12 @@ class GroundedLeadSpec:
     length: float | None = None
     profile: Literal["flat", "rounded", "chamfered"] = "flat"
     chamfer: float = 0.0
+
+
+@dataclass(frozen=True)
+class LeadSets:
+    cuts: list[tuple[str, cq.Workplane]]
+    leads: list[tuple[str, cq.Workplane]]
 
 
 def positions(count: int, pitch: float) -> list[float]:
@@ -180,3 +187,85 @@ def rectangular_lead_instances(
         leads.append((f"{prefix}_B{idx}", bottom))
     return leads
 
+
+def rectangular_lead_sets(
+    layout: LeadLayout,
+    lead: LeadDims,
+    *,
+    prefix: str = "lead",
+    cut_prefix: str = "cut",
+    dimple: LeadDimple | None = None,
+    grounded: GroundedLeadSpec | None = None,
+    profile: Literal["flat", "rounded", "chamfered"] = "rounded",
+    chamfer: float = 0.0,
+) -> LeadSets:
+    lead_cuts = rectangular_lead_instances(
+        layout,
+        lead,
+        prefix=cut_prefix,
+        dimple=None,
+        grounded=grounded,
+        profile=profile,
+        chamfer=chamfer,
+    )
+    lead_solids = rectangular_lead_instances(
+        layout,
+        lead,
+        prefix=prefix,
+        dimple=dimple,
+        grounded=grounded,
+        profile=profile,
+        chamfer=chamfer,
+    )
+    return LeadSets(cuts=lead_cuts, leads=lead_solids)
+
+
+def cut_body_for_leads(
+    body: cq.Workplane,
+    lead_cuts: Iterable[tuple[str, cq.Workplane]],
+) -> cq.Workplane:
+    for _, lead in lead_cuts:
+        body = body.cut(lead)
+    return body
+
+
+def union_leads(
+    model: cq.Workplane,
+    leads: Iterable[tuple[str, cq.Workplane]],
+) -> cq.Workplane:
+    for _, lead in leads:
+        model = model.union(lead)
+    return model
+
+
+def add_leads_to_assembly(
+    assembly: cq.Assembly,
+    leads: Iterable[tuple[str, cq.Workplane]],
+) -> None:
+    for name, lead in leads:
+        assembly.add(lead, name=name)
+
+
+_TD_NAME_RE = re.compile(r".*_[TB](\d+)$")
+
+
+def td_index_from_name(name: str) -> int | None:
+    match = _TD_NAME_RE.match(name)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def split_grounded_td_leads(
+    leads: Iterable[tuple[str, cq.Workplane]],
+    grounded_indices: set[int],
+) -> tuple[list[tuple[str, cq.Workplane]], list[tuple[str, cq.Workplane]]]:
+    grounded: list[tuple[str, cq.Workplane]] = []
+    ungrounded: list[tuple[str, cq.Workplane]] = []
+    for name, lead in leads:
+        td_index = td_index_from_name(name)
+        if td_index in grounded_indices:
+            grounded.append((name, lead))
+        else:
+            ungrounded.append((name, lead))
+    return grounded, ungrounded

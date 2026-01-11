@@ -6,8 +6,15 @@ from pathlib import Path
 import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
 
-from pin import LeadDims, LeadLayout, rectangular_lead_instances
-from thermal_pad import build_thermal_pad
+from features.pin import (
+    LeadDims,
+    LeadLayout,
+    add_leads_to_assembly,
+    cut_body_for_leads,
+    rectangular_lead_sets,
+    union_leads,
+)
+from features.thermal_pad import build_thermal_pad
 
 
 @dataclass(frozen=True)
@@ -56,7 +63,6 @@ def _build_pin1_marker(params: QFNParams) -> cq.Workplane:
     marker_x = -params.body_x / 2 + params.body_x * 0.15
     marker_y = params.body_y / 2 - params.body_y * 0.15
     marker_z = params.body_height
-
     marker = (
         cq.Workplane("XY")
         .workplane(offset=marker_z)
@@ -94,22 +100,18 @@ def build_model(params: QFNParams | None = None) -> cq.Workplane:
     body = body.cut(pin1_marker)
     layout = _lead_layout(params)
     lead_dims = _lead_dims(params)
-    leads_for_cut = rectangular_lead_instances(
-        layout, lead_dims, prefix="cut", dimple=None, grounded=None,
-        profile="chamfered", chamfer=params.lead_chamfer,
+    lead_sets = rectangular_lead_sets(
+        layout,
+        lead_dims,
+        dimple=None,
+        grounded=None,
+        profile="chamfered",
+        chamfer=params.lead_chamfer,
     )
-    leads = rectangular_lead_instances(
-        layout, lead_dims, dimple=None, grounded=None,
-        profile="chamfered", chamfer=params.lead_chamfer,
-    )
-    for _, lead in leads_for_cut:
-        body = body.cut(lead)
-    model = body
-    for _, lead in leads:
-        model = model.union(lead)
+    body = cut_body_for_leads(body, lead_sets.cuts)
+    model = union_leads(body, lead_sets.leads)
     thermal_pad = build_thermal_pad(params)
     model = model.union(thermal_pad)
-
     return model
 
 
@@ -122,22 +124,19 @@ def build_assembly(params: QFNParams | None = None) -> cq.Assembly:
     body = body.cut(pin1_marker)
     layout = _lead_layout(params)
     lead_dims = _lead_dims(params)
-    leads_for_cut = rectangular_lead_instances(
-        layout, lead_dims, prefix="cut", dimple=None, grounded=None,
-        profile="chamfered", chamfer=params.lead_chamfer,
+    lead_sets = rectangular_lead_sets(
+        layout,
+        lead_dims,
+        dimple=None,
+        grounded=None,
+        profile="chamfered",
+        chamfer=params.lead_chamfer,
     )
-    leads = rectangular_lead_instances(
-        layout, lead_dims, dimple=None, grounded=None,
-        profile="chamfered", chamfer=params.lead_chamfer,
-    )
-    for _, lead in leads_for_cut:
-        body = body.cut(lead)
+    body = cut_body_for_leads(body, lead_sets.cuts)
     assembly.add(body, name="body")
-    for name, lead in leads:
-        assembly.add(lead, name=name)
+    add_leads_to_assembly(assembly, lead_sets.leads)
     thermal_pad = build_thermal_pad(params)
     assembly.add(thermal_pad, name="thermal_pad")
-
     return assembly
 
 
@@ -153,7 +152,6 @@ QFN40_5x5 = QFNParams()
 
 if __name__ == "__main__":
     from cadquery.vis import show
-
     params = QFN40_5x5
     result = build_assembly(params)
     export_step(result, Path("qfn40_5x5.step"))

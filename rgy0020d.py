@@ -6,15 +6,19 @@ import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
 from cadquery.vis import show
 
-from pin import (
+from features.pin import (
     GroundedLeadSpec,
     LeadDims,
     LeadDimple,
     LeadLayout,
+    add_leads_to_assembly,
+    cut_body_for_leads,
     grounded_td_indices,
-    rectangular_lead_instances,
+    rectangular_lead_sets,
+    split_grounded_td_leads,
+    union_leads,
 )
-from thermal_pad import thermal_pad_solids_for_params
+from features.thermal_pad import thermal_pad_solids_for_params
 
 
 @dataclass(frozen=True)
@@ -113,17 +117,14 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
     grounded_indices = grounded_td_indices(
         layout.leads_per_td_side, params.leads_grounded_per_td_side
     )
-    leads_for_cut = rectangular_lead_instances(
-        layout, lead_dims, prefix="cut", dimple=None, grounded=grounded
+    lead_sets = rectangular_lead_sets(
+        layout,
+        lead_dims,
+        dimple=dimple,
+        grounded=grounded,
     )
-    leads = rectangular_lead_instances(
-        layout, lead_dims, dimple=dimple, grounded=grounded
-    )
-    for _, lead in leads_for_cut:
-        body = body.cut(lead)
-    model = body
-    for _, lead in leads:
-        model = model.union(lead)
+    body = cut_body_for_leads(body, lead_sets.cuts)
+    model = union_leads(body, lead_sets.leads)
     for _, solid in thermal_pad_solids_for_params(
             params,
             layout=layout,
@@ -144,26 +145,20 @@ def build_assembly(params: RGY0020DParams) -> cq.Assembly:
     grounded_indices = grounded_td_indices(
         layout.leads_per_td_side, params.leads_grounded_per_td_side
     )
-    leads_for_cut = rectangular_lead_instances(
-        layout, lead_dims, prefix="cut", dimple=None, grounded=grounded
+    lead_sets = rectangular_lead_sets(
+        layout,
+        lead_dims,
+        dimple=dimple,
+        grounded=grounded,
     )
-    leads = rectangular_lead_instances(
-        layout, lead_dims, dimple=dimple, grounded=grounded
-    )
-    for _, lead in leads_for_cut:
-        body = body.cut(lead)
+    body = cut_body_for_leads(body, lead_sets.cuts)
     assembly.add(body, name="body")
-    grounded_leads: list[cq.Workplane] = []
-    for name, lead in leads:
-        td_index = None
-        if name.startswith("lead_T"):
-            td_index = int(name[len("lead_T"):])
-        elif name.startswith("lead_B"):
-            td_index = int(name[len("lead_B"):])
-        if td_index in grounded_indices:
-            grounded_leads.append(lead)
-        else:
-            assembly.add(lead, name=name)
+    grounded_entries, ungrounded_entries = split_grounded_td_leads(
+        lead_sets.leads,
+        grounded_indices,
+    )
+    add_leads_to_assembly(assembly, ungrounded_entries)
+    grounded_leads = [lead for _, lead in grounded_entries]
     pad_solids: list[cq.Workplane] = []
     for _, solid in thermal_pad_solids_for_params(
             params,
