@@ -1,57 +1,76 @@
-flowchart TD
-  U[User]
-  CQ[CadQuery: build CAD]
-  GM[Gmsh: physical groups + meshing]
-  IM[Import: Gmsh -> DOLFINx]
-  FS[Spaces & Measures]
-  MDB[MatDB: tag->params]
-  CF[Coeff field builder]
-  BCS[BC spec]
-  BCB[BC builder]
-  PHYS[UFL model]
+flowchart LR
+  U([User])
 
-  subgraph Linear["Linear solve path"]
-    ASSY[Assemble + apply BCs]
-    SOLVE[PETSc KSP solve]
+  subgraph Pre["Pre-processing"]
+    CQ["CadQuery\nbuild CAD"]
+    GM["Gmsh\nphysical groups + meshing"]
+    IM["Import\nGmsh → DOLFINx"]
   end
 
-  subgraph Nonlinear["Nonlinear solve path"]
-    PROB[NonlinearProblem]
-    SNES[PETSc SNES solve]
+  subgraph FE["FE setup"]
+    FS["Spaces & measures"]
+    MDB["MatDB\ntag → params"]
+    CF["Coeff-field builder"]
+    BCS["BC spec"]
+    BCB["BC builder"]
   end
 
-  OUT[Outputs]
+  subgraph Model["Model"]
+    PHYS["UFL model"]
+  end
 
-  U -->|geom_params| CQ
-  U -->|mesh_params, tag_schema| GM
-  CQ -->|cad_model| GM
-  GM -->|gmsh_mesh + gmsh_cell_groups + gmsh_facet_groups| IM
-  IM -->|mesh + cell_tags + facet_tags| FS
-  U -->|space_spec| FS
+  subgraph Solve["Solve"]
+    direction TB
 
-  U -->|mat_map| MDB
-  MDB -->|mat_spec| CF
-  IM -->|mesh + cell_tags| CF
-  CF -->|coeff_fields| PHYS
+    subgraph Linear["Linear"]
+      ASSY["Assemble + apply BCs"]
+      KSP["PETSc KSP solve"]
+    end
 
-  U -->|bc_map| BCS
-  BCS -->|bc_spec| BCB
-  IM -->|mesh + facet_tags| BCB
-  FS -->|V| BCB
-  BCB -->|natural_terms| PHYS
+    subgraph Nonlinear["Nonlinear"]
+      PROB["NonlinearProblem"]
+      SNES["PETSc SNES solve"]
+    end
+  end
 
-  U -->|phys_spec| PHYS
-  FS -->|V, u, v, dx, ds| PHYS
+  OUT["Outputs"]
 
-  PHYS -->|"a(u,v), L(v)"| ASSY
-  PHYS -->|"F(u;v), J(u;du,v)"| PROB
-  BCB -->|dirichlet_bcs| ASSY
-  BCB -->|dirichlet_bcs| PROB
+  %% Geometry + mesh
+  U -- geom_params --> CQ
+  U -- "mesh_params, tag_schema" --> GM
+  CQ -- cad_model --> GM
+  GM -- "gmsh_mesh, cell_groups, facet_groups" --> IM
+  IM -- "mesh, cell_tags, facet_tags" --> FS
 
-  ASSY -->|A_bc, b_bc| SOLVE
-  U -->|solver_params| SOLVE
-  SOLVE -->|u_sol, solve_info| OUT
+  %% Spaces
+  U -- space_spec --> FS
 
-  PROB -->|assemble callbacks| SNES
-  U -->|initial_guess, solver_params| SNES
-  SNES -->|u_sol, solve_info| OUT
+  %% Materials / coefficients
+  U -- mat_map --> MDB
+  MDB -- mat_spec --> CF
+  IM -- "mesh, cell_tags" --> CF
+  CF -- coeff_fields --> PHYS
+
+  %% Boundary conditions
+  U -- bc_map --> BCS
+  BCS -- bc_spec --> BCB
+  IM -- "mesh, facet_tags" --> BCB
+  FS -- V --> BCB
+  BCB -- natural_terms --> PHYS
+
+  %% Physics + forms
+  U -- phys_spec --> PHYS
+  FS -- "V, u, v, dx, ds" --> PHYS
+
+  PHYS -- "a(u,v), L(v)" --> ASSY
+  PHYS -- "F(u;v), J(u;du,v)" --> PROB
+  BCB -- dirichlet_bcs --> ASSY
+  BCB -- dirichlet_bcs --> PROB
+
+  ASSY -- "A_bc, b_bc" --> KSP
+  U -- solver_params --> KSP
+  KSP -- "u_sol, solve_info" --> OUT
+
+  PROB -- "assemble callbacks" --> SNES
+  U -- "initial_guess, solver_params" --> SNES
+  SNES -- "u_sol, solve_info" --> OUT
