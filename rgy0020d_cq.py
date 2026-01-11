@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-
 import cadquery as cq
 from cadquery.occ_impl.exporters import assembly as asm_export
+from cadquery.vis import show
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,6 @@ class RGY0020DParams:
     leads_per_lr_side: int = 8
     leads_per_td_side: int = 4
     leads_grounded_per_td_side: int = 2
-
 
     dimple_width: float = 0.16  # ref. size from side profile
     dimple_height: float = 0.1  # ref. size from section A-A
@@ -79,11 +78,9 @@ def _grounded_td_indices(params: RGY0020DParams) -> set[int]:
     return set(range(grounded_start + 1, grounded_start + grounded_count + 1))
 
 
-def _lead_instances(
-    params: RGY0020DParams, prefix: str = "lead", with_spheroid: bool = False
-) -> list[tuple[str, cq.Workplane]]:
+def _lead_instances(params: RGY0020DParams, prefix: str = "lead", with_dimple: bool = False) -> list[tuple[str, cq.Workplane]]:
     def apply_dimple(lead: cq.Workplane, length: float) -> cq.Workplane:
-        if not with_spheroid:
+        if not with_dimple:
             return lead
         return lead.cut(
             _lead_dimple_cut(
@@ -109,9 +106,7 @@ def _lead_instances(
         return apply_dimple(lead, length)
 
     base_lead = make_rounded_lead(params.lead_length)
-
     leads: list[tuple[str, cq.Workplane]] = []
-
     lr_positions = _positions(params.leads_per_lr_side, params.lead_pitch)
     x_left = -params.body_x / 2 + params.lead_setback + params.lead_length / 2
     x_right = params.body_x / 2 - params.lead_setback - params.lead_length / 2
@@ -120,18 +115,16 @@ def _lead_instances(
         right = base_lead.rotate((0, 0, 0), (0, 0, 1), 180).translate((x_right, y, 0))
         leads.append((f"{prefix}_L{idx}", left))
         leads.append((f"{prefix}_R{idx}", right))
-
     grounded_indices = _grounded_td_indices(params)
     if grounded_indices:
         target_length = (
-            (params.body_y / 2 - params.lead_setback) - (params.thermal_pad_y / 2)
+                (params.body_y / 2 - params.lead_setback) - (params.thermal_pad_y / 2)
         )
         grounded_length = target_length
         grounded_lead = make_flat_lead(grounded_length)
     else:
         grounded_length = params.lead_length
         grounded_lead = base_lead
-
     td_positions = _positions(params.leads_per_td_side, params.lead_pitch)
     for idx, x in enumerate(td_positions, start=1):
         use_grounded = idx in grounded_indices
@@ -164,18 +157,14 @@ def _thermal_pad_solids(params: RGY0020DParams) -> list[tuple[str, cq.Workplane]
         .translate((0, 0, params.thermal_pad_thickness / 2))
     )
     solids: list[tuple[str, cq.Workplane]] = [("thermal_pad", pad)]
-
     strip_length = params.thermal_pad_td_center_strip
     if strip_length <= 0:
         return solids
-
     grounded_indices = _grounded_td_indices(params)
     if len(grounded_indices) < 2:
         return solids
-
     td_positions = _positions(params.leads_per_td_side, params.lead_pitch)
     grounded_positions = [td_positions[idx - 1] for idx in sorted(grounded_indices)]
-
     inner_pair = sorted(sorted(grounded_positions, key=abs)[:2])
     left_center, right_center = inner_pair
     x_min = left_center + params.lead_width / 2
@@ -183,7 +172,6 @@ def _thermal_pad_solids(params: RGY0020DParams) -> list[tuple[str, cq.Workplane]
     strip_width = x_max - x_min
     if strip_width <= 0:
         return solids
-
     strip_center_x = (x_min + x_max) / 2
     z_center = params.thermal_pad_thickness / 2
     y_top = params.thermal_pad_y / 2 + strip_length / 2
@@ -195,7 +183,6 @@ def _thermal_pad_solids(params: RGY0020DParams) -> list[tuple[str, cq.Workplane]
     strip_bottom = strip_profile.translate((strip_center_x, y_bottom, z_center))
     solids.append(("thermal_pad_strip_top", strip_top))
     solids.append(("thermal_pad_strip_bottom", strip_bottom))
-
     return solids
 
 
@@ -209,8 +196,8 @@ def _union_solids(solids: list[cq.Workplane]) -> cq.Workplane | None:
 def build_model(params: RGY0020DParams) -> cq.Workplane:
     body = _build_body(params)
 
-    leads_for_cut = _lead_instances(params, prefix="cut", with_spheroid=False)
-    leads = _lead_instances(params, with_spheroid=True)
+    leads_for_cut = _lead_instances(params, prefix="cut", with_dimple=False)
+    leads = _lead_instances(params, with_dimple=True)
     for _, lead in leads_for_cut:
         body = body.cut(lead)
 
@@ -227,12 +214,11 @@ def build_model(params: RGY0020DParams) -> cq.Workplane:
 def build_assembly(params: RGY0020DParams) -> cq.Assembly:
     assembly = cq.Assembly()
     body = _build_body(params)
-    leads_for_cut = _lead_instances(params, prefix="cut", with_spheroid=False)
-    leads = _lead_instances(params, with_spheroid=True)
+    leads_for_cut = _lead_instances(params, prefix="cut", with_dimple=False)
+    leads = _lead_instances(params, with_dimple=True)
     for _, lead in leads_for_cut:
         body = body.cut(lead)
     assembly.add(body, name="body")
-
     grounded_indices = _grounded_td_indices(params)
     grounded_leads: list[cq.Workplane] = []
     for name, lead in leads:
@@ -271,3 +257,5 @@ if __name__ == "__main__":
     params = RGY0020DParams()
     result = build_assembly(params)
     export_step(result, Path("rgy0020d.step"))
+    # TODO: take snapshots of the top, bottom, side views of chip
+    show(result, width=1280, height=720, zoom=0, roll=0, elevation=0, interact=True)
