@@ -1,0 +1,52 @@
+flowchart TD
+  U[User]
+  CQ[CadQuery: build CAD]
+  GM[Gmsh: physical groups + meshing]
+  IM[Import: Gmsh -> DOLFINx]
+  FS[Spaces & Measures]
+  MDB[MatDB: tag->params]
+  CF[Coeff field builder]
+  BCS[BC spec]
+  BCB[BC builder]
+  PHYS[UFL model]
+  IC[IC init]
+  STEP[Instantiate step forms]
+  PROB[NonlinearProblem]
+  SNES[PETSc SNES solve]
+  ADV[Advance state]
+  OUT[Outputs]
+
+  U -->|geom_params| CQ
+  U -->|mesh_params, tag_schema| GM
+  CQ -->|cad_model| GM
+  GM -->|gmsh_mesh + gmsh_cell_groups + gmsh_facet_groups| IM
+  IM -->|mesh + cell_tags + facet_tags| FS
+  U -->|space_spec| FS
+
+  U -->|mat_map| MDB
+  MDB -->|mat_spec| CF
+  IM -->|mesh + cell_tags| CF
+
+  U -->|bc_map| BCS
+  BCS -->|bc_spec| BCB
+  IM -->|mesh + facet_tags| BCB
+  FS -->|V| BCB
+
+  U -->|ic_spec| IC
+  FS -->|V| IC
+
+  U -->|phys_spec| PHYS
+
+  IC -->|u_n, t0| STEP
+  ADV -->|u_n, t, dt| STEP
+  CF -->|coeff_fields| STEP
+  FS -->|V, u, v, dx, ds| STEP
+  BCB -->|natural_terms| STEP
+  PHYS -->|F_template, J_template| STEP
+
+  STEP -->|"F(u), J(u)"| PROB
+  BCB -->|dirichlet_bcs| PROB
+  PROB -->|assemble callbacks| SNES
+  U -->|solver_params| SNES
+  SNES -->|"u_{n+1}, solve_info"| ADV
+  ADV -->|outputs| OUT
