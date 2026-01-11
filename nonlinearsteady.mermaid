@@ -1,0 +1,50 @@
+flowchart LR
+    U([User])
+    subgraph Pre["Pre-processing"]
+        CQ["CadQuery\nbuild CAD"]
+        GM["Gmsh\nphysical groups + meshing"]
+        IM["Import\nGmsh → DOLFINx"]
+    end
+    subgraph FE["FE setup"]
+        FS["Spaces & measures"]
+        MDB["MatDB\ntag → params"]
+        CF["Coeff-field builder"]
+        BCS["BC spec"]
+        BCB["BC builder"]
+    end
+    subgraph Model["Model"]
+        PHYS["UFL model"]
+    end
+    subgraph Solve["Solve"]
+        direction TB
+        PROB["NonlinearProblem"]
+        SNES["PETSc SNES solve"]
+    end
+    OUT["Outputs"]
+%% Geometry + mesh
+    U -- geom_params --> CQ
+    U -- " mesh_params, tag_schema " --> GM
+    CQ -- cad_model --> GM
+    GM -- " gmsh_mesh, cell_groups, facet_groups " --> IM
+    IM -- " mesh, cell_tags, facet_tags " --> FS
+%% Spaces
+    U -- space_spec --> FS
+%% Materials / coefficients
+    U -- mat_map --> MDB
+    MDB -- mat_spec --> CF
+    IM -- " mesh, cell_tags " --> CF
+    CF -- coeff_fields --> PHYS
+%% Boundary conditions
+    U -- bc_map --> BCS
+    BCS -- bc_spec --> BCB
+    IM -- " mesh, facet_tags " --> BCB
+    FS -- V --> BCB
+    BCB -- natural_terms --> PHYS
+%% Physics + forms
+    U -- phys_spec --> PHYS
+    FS -- " V, u, v, dx, ds " --> PHYS
+    PHYS -- " F(u;v), J(u;du,v) " --> PROB
+    BCB -- dirichlet_bcs --> PROB
+    PROB -- " assemble callbacks " --> SNES
+    U -- " initial_guess, solver_params " --> SNES
+    SNES -- " u_sol, solve_info " --> OUT
