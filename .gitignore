@@ -5,5 +5,5 @@ reference/*/*
 *.lck
 *.rpt
 .venv
-.step
-.png
+*.step
+*.png
