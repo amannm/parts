@@ -4,7 +4,7 @@ import math
 
 import cadquery as cq
 
-from library.features.magnet import (
+from magnet import (
     compute_Rmc_from_post,
     magnet_pockets_and_solids_for_pole,
     polar_xy,

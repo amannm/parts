@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
-
 import cadquery as cq
-
-from library.features.body import build_body, circular_pin1_marker, export_step
-from library.features.pin import (
+from features.body import build_body, circular_pin1_marker, export_step
+from features.pin import (
     LeadDims,
     LeadLayout,
     add_leads_to_assembly,
@@ -14,7 +11,7 @@ from library.features.pin import (
     rectangular_lead_sets,
     union_leads,
 )
-from library.features.thermal_pad import build_thermal_pad
+from features.thermal_pad import build_thermal_pad
 
 
 @dataclass(frozen=True)

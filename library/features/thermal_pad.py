@@ -6,7 +6,7 @@ from typing import Protocol
 import cadquery as cq
 from cadquery import selectors
 
-from library.features.pin import LeadLayout, positions
+from features.pin import LeadLayout, positions
 
 
 @dataclass(frozen=True)

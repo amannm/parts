@@ -1,13 +1,10 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
-
 import cadquery as cq
 from cadquery.vis import show
-
-from library.features.body import build_body, export_step, union_solids
-from library.features.pin import (
+from features.body import build_body, export_step, union_solids
+from features.pin import (
     GroundedLeadSpec,
     LeadDims,
     LeadDimple,
@@ -19,7 +16,7 @@ from library.features.pin import (
     split_grounded_td_leads,
     union_leads,
 )
-from library.features.thermal_pad import thermal_pad_solids_for_params
+from features.thermal_pad import thermal_pad_solids_for_params
 
 
 @dataclass(frozen=True)

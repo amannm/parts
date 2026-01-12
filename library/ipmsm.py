@@ -4,29 +4,10 @@ import os
 import sys
 import types
 from pathlib import Path
-
 from cadquery import exporters
 from cadquery.vis import show
-
-
-def _ensure_local_library_pkg() -> None:
-    repo_root = Path(__file__).resolve().parent.parent
-    library_dir = repo_root / "library"
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-    pkg = sys.modules.get("library")
-    if pkg is None or library_dir.resolve() not in {
-        Path(p).resolve() for p in getattr(pkg, "__path__", [])
-    }:
-        pkg = types.ModuleType("library")
-        pkg.__path__ = [str(library_dir)]
-        sys.modules["library"] = pkg
-
-
-_ensure_local_library_pkg()
-
-from library.features.stator import make_stator
-from library.features.rotor import make_rotor_and_magnets
+from features.stator import make_stator
+from features.rotor import make_rotor_and_magnets
 
 P = {
     "global": {
