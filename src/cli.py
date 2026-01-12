@@ -6,8 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from simstack.config import load_config
-from simstack.core.project import Project
+from src import load_config
+from src import Project
 
 
 def _build_parser() -> argparse.ArgumentParser:
