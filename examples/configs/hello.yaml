@@ -28,6 +28,7 @@ physics:
   model: poisson
   parameters:
     source: 1.0
+    kappa: 1.0
 
 bcs:
   items:
@@ -37,6 +38,11 @@ bcs:
     - type: dirichlet
       tag: right
       value: 1.0
+
+materials:
+  by_tag:
+    solid:
+      kappa: 1.0
 
 outputs:
   directory: out

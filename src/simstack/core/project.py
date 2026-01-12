@@ -89,6 +89,7 @@ class Project:
             facet_tags,
             self.config.physics,
             self.config.bcs,
+            self.config.materials,
             self.config.solver,
             tag_map,
         )

@@ -21,10 +21,19 @@ class PoissonModel:
         from dolfinx import fem
         from petsc4py import PETSc
 
-        kappa = float(config.get("kappa", 1.0))
+        from simstack.fem.coeffs import build_dg0_field
+
+        kappa_default = float(config.get("kappa", 1.0))
         source = float(config.get("source", 0.0))
+        kappa = None
+
+        if matdb and matdb.get("by_id"):
+            kappa = build_dg0_field(mesh, cell_tags, matdb["by_id"], "kappa", kappa_default)
+        else:
+            kappa = fem.Constant(mesh, PETSc.ScalarType(kappa_default))
+
         return {
-            "kappa": fem.Constant(mesh, PETSc.ScalarType(kappa)),
+            "kappa": kappa,
             "source": fem.Constant(mesh, PETSc.ScalarType(source)),
         }
 
@@ -66,4 +75,8 @@ class PoissonModel:
         return a, L
 
     def outputs(self, fields: Dict[str, Any], coeffs: Dict[str, Any], config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        return []
+        derived = []
+        kappa = coeffs.get("kappa")
+        if kappa is not None and hasattr(kappa, "function_space"):
+            derived.append({"name": "kappa", "field": kappa})
+        return derived

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from simstack.config import BCsConfig, PhysicsConfig, SolverConfig
+from simstack.config import BCsConfig, MaterialsConfig, PhysicsConfig, SolverConfig
 from simstack.core.registry import DEFAULT_REGISTRY
 from simstack.core.artifacts import SolveArtifact
+from simstack.fem.materials import build_matdb
 
 
 def _merge_solver_options(solver: SolverConfig) -> Dict[str, Any]:
@@ -23,6 +24,7 @@ def solve_linear_problem(
     facet_tags: Any,
     physics: PhysicsConfig,
     bcs: BCsConfig,
+    materials: MaterialsConfig,
     solver: SolverConfig,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
@@ -36,7 +38,8 @@ def solve_linear_problem(
     field_spec = model.declare_fields(physics.parameters)
     spaces = model.build_spaces(mesh, field_spec, physics.parameters)
 
-    coeffs = model.build_coefficients(mesh, cell_tags, None, physics.parameters)
+    matdb = build_matdb(materials, tag_map)
+    coeffs = model.build_coefficients(mesh, cell_tags, matdb, physics.parameters)
     measures = {
         "dx": Measure("dx", domain=mesh, subdomain_data=cell_tags),
         "ds": Measure("ds", domain=mesh, subdomain_data=facet_tags),
@@ -63,4 +66,9 @@ def solve_linear_problem(
     }
 
     fields = {"u": uh}
+    for derived in model.outputs(fields, coeffs, physics.parameters):
+        name = derived.get("name")
+        field = derived.get("field")
+        if name and field is not None:
+            fields[name] = field
     return SolveArtifact(fields=fields, derived_fields={}, solver_report=solver_info, timings={})

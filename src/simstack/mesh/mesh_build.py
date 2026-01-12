@@ -14,6 +14,7 @@ from simstack.mesh.tag_transfer import TagTransferResult, apply_tag_rules
 class GmshBuildResult:
     model: Any
     tag_result: TagTransferResult
+    mesh_stats: Dict[str, Any]
 
 
 class GmshSession:
@@ -76,6 +77,21 @@ def _check_tag_coverage(
             raise ValueError(f"Facet overlap detected for {len(overlaps)} facets")
 
 
+def _mesh_quality_stats() -> Dict[str, Any]:
+    import gmsh
+
+    try:
+        qualities = gmsh.model.mesh.getElementQualities()
+    except Exception:
+        return {}
+    if not qualities:
+        return {}
+    qmin = min(qualities)
+    qmax = max(qualities)
+    qavg = sum(qualities) / len(qualities)
+    return {"min_quality": qmin, "max_quality": qmax, "avg_quality": qavg, "count": len(qualities)}
+
+
 def build_gmsh_model(step_path: str | Path, tags: TagsConfig, config: MeshingConfig) -> GmshBuildResult:
     import gmsh
 
@@ -103,4 +119,12 @@ def build_gmsh_model(step_path: str | Path, tags: TagsConfig, config: MeshingCon
 
     gmsh.model.mesh.generate(3)
 
-    return GmshBuildResult(model=gmsh.model, tag_result=tag_result)
+    mesh_stats = _mesh_quality_stats()
+    if config.qa.min_quality is not None:
+        min_quality = mesh_stats.get("min_quality")
+        if min_quality is not None and min_quality < config.qa.min_quality:
+            raise ValueError(
+                f"Mesh quality below threshold: min {min_quality:.4g} < {config.qa.min_quality:.4g}"
+            )
+
+    return GmshBuildResult(model=gmsh.model, tag_result=tag_result, mesh_stats=mesh_stats)
