@@ -1,0 +1,50 @@
+geometry:
+  builder: block_with_hole
+  params:
+    length: 1.0
+    width: 1.0
+    height: 1.0
+    hole_radius: 0.2
+  units: m
+
+tags:
+  facets:
+    - name: left
+      rule: PlaneAtMin
+      params:
+        axis: x
+    - name: right
+      rule: PlaneAtMax
+      params:
+        axis: x
+  cells:
+    - name: solid
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.1
+
+physics:
+  model: heat
+  parameters:
+    source: 1.0
+    kappa: 5.0
+
+bcs:
+  items:
+    - type: dirichlet
+      tag: left
+      value: 300.0
+    - type: robin
+      tag: right
+      value: 290.0
+      alpha: 10.0
+
+materials:
+  by_tag:
+    solid:
+      kappa: 5.0
+
+outputs:
+  directory: out
+  format: vtx

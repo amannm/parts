@@ -63,20 +63,20 @@ class Project:
                 raise RuntimeError("CAD builder did not produce a STEP path")
 
         gmsh_result = None
-        if rank == 0:
-            with GmshSession():
+        with GmshSession():
+            if rank == 0:
                 gmsh_result = build_gmsh_model(
                     cad_artifact.step_path,
                     self.config.tags,
                     self.config.meshing,
                 )
 
-        mesh, cell_tags, facet_tags = model_to_mesh(
-            gmsh_result.model if gmsh_result else None,
-            comm,
-            rank=0,
-            gdim=3,
-        )
+            mesh, cell_tags, facet_tags = model_to_mesh(
+                gmsh_result.model if gmsh_result else None,
+                comm,
+                rank=0,
+                gdim=3,
+            )
 
         tag_map = None
         if gmsh_result is not None:
@@ -99,6 +99,9 @@ class Project:
         if rank == 0:
             tag_map_path = mesh_dir / "tag_map.json"
             tag_map_path.write_text(json.dumps(tag_map, indent=2, sort_keys=True))
+            if gmsh_result is not None and gmsh_result.mesh_stats:
+                mesh_stats_path = mesh_dir / "mesh_stats.json"
+                mesh_stats_path.write_text(json.dumps(gmsh_result.mesh_stats, indent=2, sort_keys=True))
 
         output_paths = write_outputs(
             mesh,

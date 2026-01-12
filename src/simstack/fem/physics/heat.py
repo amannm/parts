@@ -1,14 +1,14 @@
-"""Poisson physics module."""
+"""Heat conduction physics module (steady-state)."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
 
-class PoissonModel:
+class HeatModel:
     def declare_fields(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
         degree = int(config.get("degree", 1))
-        return [{"name": "u", "family": "CG", "degree": degree}]
+        return [{"name": "T", "family": "CG", "degree": degree}]
 
     def build_spaces(self, mesh: Any, field_spec: List[Dict[str, Any]], config: Dict[str, Any]) -> Dict[str, Any]:
         from dolfinx import fem
@@ -25,7 +25,6 @@ class PoissonModel:
 
         kappa_default = float(config.get("kappa", 1.0))
         source = float(config.get("source", 0.0))
-        kappa = None
 
         if matdb and matdb.get("by_id"):
             kappa = build_dg0_field(mesh, cell_tags, matdb["by_id"], "kappa", kappa_default)
@@ -52,10 +51,11 @@ class PoissonModel:
         L_terms: List[Any] = []
         ds = config.get("ds")
         if ds is None:
-            raise ValueError("Poisson build_bcs requires 'ds' measure in config")
+            raise ValueError("Heat build_bcs requires 'ds' measure in config")
 
         v = TestFunction(V)
         u = TrialFunction(V)
+
         for bc in config.get("bcs", []):
             tag_id = config["tag_map"]["facets"].get(bc["tag"])
             if tag_id is None:
@@ -67,14 +67,14 @@ class PoissonModel:
                 value = fem.Constant(V.mesh, PETSc.ScalarType(bc["value"]))
                 bcs.append(fem.dirichletbc(value, dofs, V))
             elif bc["type"] == "neumann":
-                g = PETSc.ScalarType(bc["value"])
-                L_terms.append(g * v * ds(tag_id))
+                q = PETSc.ScalarType(bc["value"])
+                L_terms.append(q * v * ds(tag_id))
             elif bc["type"] == "robin":
                 params = bc.get("params") or {}
                 alpha = PETSc.ScalarType(params.get("alpha", bc.get("alpha", 1.0)))
-                u0 = PETSc.ScalarType(bc.get("value", 0.0))
+                t_inf = PETSc.ScalarType(bc.get("value", 0.0))
                 a_terms.append(alpha * u * v * ds(tag_id))
-                L_terms.append(alpha * u0 * v * ds(tag_id))
+                L_terms.append(alpha * t_inf * v * ds(tag_id))
             else:
                 raise ValueError(f"Unsupported BC type: {bc['type']}")
 
@@ -84,14 +84,14 @@ class PoissonModel:
         from ufl import TestFunction, TrialFunction, inner, grad
 
         V = spaces["V"]
-        u = TrialFunction(V)
+        T = TrialFunction(V)
         v = TestFunction(V)
         dx = measures["dx"]
 
         kappa = coeffs["kappa"]
         source = coeffs["source"]
 
-        a = inner(kappa * grad(u), grad(v)) * dx
+        a = inner(kappa * grad(T), grad(v)) * dx
         L = source * v * dx
         return a, L
 

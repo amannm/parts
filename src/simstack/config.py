@@ -72,6 +72,8 @@ class BCSpec(BaseModel):
     tag: str
     value: Any = None
     component: Optional[int] = None
+    alpha: Optional[float] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BCsConfig(BaseModel):

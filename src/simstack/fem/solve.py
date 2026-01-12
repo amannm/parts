@@ -48,13 +48,15 @@ def solve_linear_problem(
     bc_payload = {
         "bcs": [bc.model_dump(mode="json") for bc in bcs.items],
         "tag_map": tag_map,
+        "ds": measures["ds"],
     }
-    dirichlet_bcs, natural_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
+    dirichlet_bcs, a_terms, L_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
 
     a, L = model.build_forms(spaces, coeffs, measures, physics.parameters)
-    if natural_terms:
-        for term in natural_terms:
-            L += term
+    for term in a_terms:
+        a += term
+    for term in L_terms:
+        L += term
 
     options = _merge_solver_options(solver)
     problem = petsc.LinearProblem(a, L, bcs=dirichlet_bcs, petsc_options=options)
@@ -65,7 +67,9 @@ def solve_linear_problem(
         "iterations": problem.solver.getIterationNumber(),
     }
 
-    fields = {"u": uh}
+    primary_name = field_spec[0]["name"] if field_spec else "u"
+    uh.name = primary_name
+    fields = {primary_name: uh}
     for derived in model.outputs(fields, coeffs, physics.parameters):
         name = derived.get("name")
         field = derived.get("field")
