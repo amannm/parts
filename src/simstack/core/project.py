@@ -215,6 +215,7 @@ class Project:
             write_mesh_xdmf(mesh, cell_tags, facet_tags, mesh_dir)
             if self.config.outputs.write_boundary_mesh:
                 write_boundary_xdmf(mesh, facet_tags, mesh_dir)
+        tag_legend_path = None
         if rank == 0:
             tag_map_path = mesh_dir / "tag_map.json"
             tag_map_path.write_text(json.dumps(tag_map, indent=2, sort_keys=True))

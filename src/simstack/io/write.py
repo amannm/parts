@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 def build_tag_fields(mesh: Any, cell_tags: Any) -> Dict[str, Any]:
