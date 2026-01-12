@@ -246,6 +246,19 @@ def solve_linear_problem(
         field = derived.get("field")
         if name and field is not None:
             fields[name] = field
+    metrics_fn = getattr(model, "metrics", None)
+    if callable(metrics_fn):
+        extra = metrics_fn(
+            fields,
+            coeffs,
+            measures,
+            physics.parameters,
+            tag_map=tag_map,
+            facet_tags=facet_tags,
+        )
+        if isinstance(extra, dict):
+            solver_info.update(extra)
+
     return SolveArtifact(fields=fields, derived_fields={}, solver_report=solver_info, timings={})
 
 

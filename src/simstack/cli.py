@@ -6,8 +6,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from src import load_config
-from src import Project
+from simstack.config import load_config, load_sweep_config
+from simstack.core.project import Project
+from simstack.sweep import run_sweep
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     validate = sub.add_parser("validate", help="Validate a config file")
     validate.add_argument("config", help="Path to config YAML")
+
+    sweep = sub.add_parser("sweep", help="Run a parameter sweep")
+    sweep.add_argument("config", help="Path to sweep config YAML")
+    sweep.add_argument("--out", default=None, help="Sweep output directory root")
+    sweep.add_argument("--dry-run", action="store_true", help="Only validate and emit dry-run reports")
+    sweep.add_argument("--force", action="store_true", help="Ignore cached outputs and re-run")
 
     return parser
 
@@ -68,6 +75,22 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sweep(args: argparse.Namespace) -> int:
+    sweep_cfg = load_sweep_config(args.config)
+    summary = run_sweep(
+        sweep_cfg,
+        repo_root=Path.cwd(),
+        dry_run=args.dry_run,
+        force=args.force,
+        out_dir=args.out,
+    )
+    print(f"Sweep completed. Runs: {summary['count']}")
+    print(f"Sweep output root: {summary['output_root']}")
+    if summary.get("report_path"):
+        print(f"Sweep report: {summary['report_path']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -76,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_run(args)
     if args.command == "validate":
         return _cmd_validate(args)
+    if args.command == "sweep":
+        return _cmd_sweep(args)
 
     parser.print_help()
     return 1

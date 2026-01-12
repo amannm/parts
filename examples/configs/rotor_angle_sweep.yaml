@@ -1,0 +1,20 @@
+base: examples/configs/magnetostatic.yaml
+name: rotor_angle
+output_directory: out/sweeps
+
+parameters:
+  - name: rotor_angle_deg
+    path:
+      - metadata.rotor_angle_deg
+      - materials.by_tag.domain.magnetization
+      - materials.by_tag.domain.current_density
+    labels:
+      - 0deg
+      - 30deg
+      - 60deg
+      - 90deg
+    values:
+      - [0, [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+      - [30, [0.8660254, 0.5, 0.0], [0.0, 0.0, 0.0]]
+      - [60, [0.5, 0.8660254, 0.0], [0.0, 0.0, 0.0]]
+      - [90, [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]]

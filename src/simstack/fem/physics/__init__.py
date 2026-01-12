@@ -6,4 +6,5 @@ __all__ = [
     "heat_transient",
     "elasticity",
     "electric_ac",
+    "magnetostatic",
 ]

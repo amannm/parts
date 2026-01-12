@@ -152,6 +152,53 @@ class SimStackConfig(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class SweepParameterConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str | List[str]
+    values: List[Any] = Field(default_factory=list)
+    name: Optional[str] = None
+    labels: Optional[List[str]] = None
+    transform: Optional[Literal["deg2rad", "rad2deg"]] = None
+    scale: Optional[float] = None
+    offset: Optional[float] = None
+    fmt: Optional[str] = None
+
+    @field_validator("values")
+    @classmethod
+    def _validate_values(cls, value: List[Any]) -> List[Any]:
+        if not value:
+            raise ValueError("sweep parameter values must be non-empty")
+        return value
+
+    @field_validator("labels")
+    @classmethod
+    def _validate_labels(cls, value: Optional[List[str]], info) -> Optional[List[str]]:
+        if value is None:
+            return value
+        values = info.data.get("values") or []
+        if len(value) != len(values):
+            raise ValueError("sweep parameter labels must match values length")
+        return value
+
+
+class SweepConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base: str
+    parameters: List[SweepParameterConfig] = Field(default_factory=list)
+    name: Optional[str] = None
+    output_directory: str = "out/sweeps"
+    mode: Literal["cartesian", "zip"] = "cartesian"
+
+    @field_validator("parameters")
+    @classmethod
+    def _validate_parameters(cls, value: List[SweepParameterConfig]) -> List[SweepParameterConfig]:
+        if not value:
+            raise ValueError("sweep requires at least one parameter")
+        return value
+
+
 def load_config(path: str | Path) -> SimStackConfig:
     path = Path(path)
     if not path.exists():
@@ -160,6 +207,16 @@ def load_config(path: str | Path) -> SimStackConfig:
     if data is None:
         raise ValueError(f"Config is empty: {path}")
     return SimStackConfig.model_validate(data)
+
+
+def load_sweep_config(path: str | Path) -> SweepConfig:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Sweep config not found: {path}")
+    data = yaml.safe_load(path.read_text())
+    if data is None:
+        raise ValueError(f"Sweep config is empty: {path}")
+    return SweepConfig.model_validate(data)
 
 
 def config_to_dict(config: SimStackConfig) -> Dict[str, Any]:

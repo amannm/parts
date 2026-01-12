@@ -1,0 +1,49 @@
+geometry:
+  builder: block_with_hole
+  params:
+    length: 0.1
+    width: 0.1
+    height: 0.1
+    hole_radius: 0.0
+  units: m
+
+tags:
+  facets:
+    - name: x_min
+      rule: PlaneAtMin
+      params:
+        axis: x
+    - name: x_max
+      rule: PlaneAtMax
+      params:
+        axis: x
+  cells:
+    - name: domain
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.02
+
+physics:
+  model: magnetostatic
+  parameters:
+    include_B: true
+    include_H: true
+
+bcs:
+  - type: dirichlet
+    tag: x_min
+    value: [0.0, 0.0, 0.0]
+  - type: dirichlet
+    tag: x_max
+    value: [0.0, 0.0, 0.0]
+
+materials:
+  by_tag:
+    domain:
+      mu_r: 1000.0
+      current_density: [0.0, 0.0, 1.0e6]
+
+outputs:
+  directory: out
+  format: vtx
