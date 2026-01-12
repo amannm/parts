@@ -125,9 +125,9 @@ def _build_targets(params: Dict[str, Any], tag_map: Dict[str, Dict[str, int]]) -
             tag_id = tag_map.get("cells", {}).get(tag)
             if tag_id is None:
                 raise KeyError(f"Target tag not found in cell tags: {tag}")
-            threshold = spec.get("temperature", spec.get("value", spec.get("target")))
+            threshold = spec.get("temperature")
             if threshold is None:
-                raise KeyError(f"Target '{name}' missing temperature/value")
+                raise KeyError(f"Target '{name}' missing temperature")
             mode = spec.get("mode", "avg")
             direction = spec.get("direction", "above")
             targets.append(

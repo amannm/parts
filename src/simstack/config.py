@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class GeometryConfig(BaseModel):
@@ -64,6 +64,42 @@ class PhysicsConfig(BaseModel):
 
     model: str
     parameters: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("parameters")
+    @classmethod
+    def _validate_targets(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(value, dict):
+            raise TypeError("physics.parameters must be a dict")
+
+        time_cfg = value.get("time")
+        if isinstance(time_cfg, dict) and "targets" in time_cfg:
+            raise ValueError("time.targets is not supported; move targets to physics.parameters.targets")
+
+        raw = value.get("targets")
+        if raw is None:
+            return value
+        if isinstance(raw, dict):
+            raw_list = [raw]
+        elif isinstance(raw, list):
+            raw_list = raw
+        else:
+            raise TypeError("physics.parameters.targets must be a dict or list of dicts")
+
+        for idx, spec in enumerate(raw_list):
+            if not isinstance(spec, dict):
+                raise TypeError(f"targets[{idx}] must be a dict")
+            if "tag" not in spec:
+                raise ValueError(f"targets[{idx}] missing 'tag'")
+            if "temperature" not in spec:
+                raise ValueError(f"targets[{idx}] missing 'temperature'")
+            mode = spec.get("mode", "avg")
+            if mode not in {"avg", "min", "max"}:
+                raise ValueError(f"targets[{idx}] invalid mode '{mode}'")
+            direction = spec.get("direction", "above")
+            if direction not in {"above", "below"}:
+                raise ValueError(f"targets[{idx}] invalid direction '{direction}'")
+
+        return value
 
 
 class BCSpec(BaseModel):
