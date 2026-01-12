@@ -11,7 +11,7 @@ from simstack.core.provenance import build_provenance, stable_hash
 from simstack.cad.build import build_geometry
 from simstack.mesh.mesh_build import GmshSession, build_gmsh_model
 from simstack.mesh.import_dolfinx import model_to_mesh
-from simstack.fem.solve import solve_linear_problem
+from simstack.fem.solve import solve_problem
 from simstack.io.write import (
     build_tag_fields,
     write_boundary_xdmf,
@@ -196,7 +196,7 @@ class Project:
             tag_map = gmsh_result.tag_result.tag_map
         tag_map = comm.bcast(tag_map, root=0)
 
-        solve_artifact = solve_linear_problem(
+        solve_artifact = solve_problem(
             mesh,
             cell_tags,
             facet_tags,

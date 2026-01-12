@@ -47,11 +47,15 @@ DEFAULT_REGISTRY = Registry(
 def _register_defaults() -> None:
     from simstack.fem.physics.poisson import PoissonModel
     from simstack.fem.physics.heat import HeatModel
+    from simstack.fem.physics.heat_transient import HeatTransientModel
     from simstack.fem.physics.elasticity import ElasticityModel
+    from simstack.fem.physics.electric_ac import ElectricACModel
 
     DEFAULT_REGISTRY.register_physics("poisson", PoissonModel)
     DEFAULT_REGISTRY.register_physics("heat", HeatModel)
+    DEFAULT_REGISTRY.register_physics("heat_transient", HeatTransientModel)
     DEFAULT_REGISTRY.register_physics("elasticity", ElasticityModel)
+    DEFAULT_REGISTRY.register_physics("electric_ac", ElectricACModel)
 
 
 _register_defaults()

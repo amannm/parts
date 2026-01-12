@@ -1,0 +1,70 @@
+geometry:
+  builder: block_with_hole
+  params:
+    length: 0.1
+    width: 0.1
+    height: 0.2
+    hole_radius: 0.005
+  units: m
+
+tags:
+  facets:
+    - name: z_min
+      rule: PlaneAtMin
+      params:
+        axis: z
+    - name: z_max
+      rule: PlaneAtMax
+      params:
+        axis: z
+  cells:
+    - name: domain
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.01
+
+physics:
+  model: electro_thermal
+  parameters:
+    targets:
+      - name: warmup
+        tag: domain
+        temperature: 333.15
+        mode: avg
+        direction: above
+    electric:
+      include_joule_heat: true
+      bcs:
+        - type: dirichlet
+          tag: z_min
+          value: 0.0
+        - type: dirichlet
+          tag: z_max
+          value: 1.0
+    heat:
+      bcs:
+        - type: robin
+          tag: z_max
+          value: 293.15
+          alpha: 10.0
+    time:
+      dt: 0.1
+      t_end: 10.0
+      initial: 293.15
+    phase_change:
+      latent_heat: 2.26e6
+      delta_T: 1.0
+      transition_temp: 373.15
+
+materials:
+  by_tag:
+    domain:
+      sigma: 5.8e7
+      kappa: 0.6
+      rho: 1000.0
+      cp: 4182.0
+
+outputs:
+  directory: out
+  format: vtx

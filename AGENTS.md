@@ -1,5 +1,8 @@
 # Project objectives
-- An integrated CAD and Multiphysics system.
+- A compact CAD system with multiphysics simulation support.
+
+# Non-goals
+- Do not worry about backwards compatibility with anything.
 
 # Reference material (symlinked)
 - [CadQuery Source Code](reference/cadquery)
