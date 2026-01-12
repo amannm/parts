@@ -18,25 +18,6 @@ def rect_solid(L: float, W: float, t: float) -> cq.Workplane:
     return cq.Workplane("XY").rect(L, W).extrude(t, both=True)
 
 
-def compute_Rmc_from_post(P) -> float:
-    m = P["magnets"]
-    r = P["rotor"]
-    alpha_rad = deg2rad(float(m["alpha_v_deg"]))
-    sin_a = max(1e-6, math.sin(alpha_rad))
-    cos_a = math.cos(alpha_rad)
-    Lp = float(m["L_m"]) + 2.0 * float(m["clearance"])
-    r_in_tip_target = float(m["b_post"]) / (2.0 * sin_a)
-    R_mc = r_in_tip_target + (Lp / 2.0) * cos_a
-    R_ro = float(r["D_ro"]) / 2.0
-    bridge = float(m["rotor_bridge_od"])
-    clearance = float(m["clearance"])
-    outer_limit = R_ro - bridge - clearance
-    R_mc_max = outer_limit - (Lp / 2.0) * cos_a
-    if R_mc > R_mc_max:
-        R_mc = R_mc_max
-    return R_mc
-
-
 def magnet_pockets_and_solids_for_pole(P, pole_center: float, R_mc: float, Lp: float, tp: float, t: float):
     m = P["magnets"]
     pocket_cutters = None

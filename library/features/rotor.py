@@ -4,28 +4,16 @@ import math
 
 import cadquery as cq
 
-from magnet import (
-    compute_Rmc_from_post,
+from features.magnet import (
     magnet_pockets_and_solids_for_pole,
     polar_xy,
     rect_solid,
 )
 
-
-def annulus_sector_solid(r_in, r_out, a_center_deg, span_deg, t, nseg=32):
-    a1 = a_center_deg - span_deg / 2
-    a2 = a_center_deg + span_deg / 2
-    outer = [polar_xy(r_out, a1 + (a2 - a1) * i / nseg) for i in range(nseg + 1)]
-    inner = [polar_xy(r_in, a2 - (a2 - a1) * i / nseg) for i in range(nseg + 1)]
-    pts = outer + inner
-    return cq.Workplane("XY").polyline(pts).close().extrude(t, both=True)
-
-
 def make_rotor_and_magnets(P):
     g = P["global"]
     r = P["rotor"]
     m = P["magnets"]
-    b = P["barriers"]
     t = P["build"]["lam_thickness"]
     poles = int(g["poles"])
     pole_pitch = 360.0 / float(poles)
