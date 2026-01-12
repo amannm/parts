@@ -6,6 +6,7 @@
 - [Gmsh Source Code](reference/gmsh)
 - [DOLFINx Source Code](reference/dolfinx)
 - [UFL Source Code](reference/ufl)
+- [PETSc Source Code](reference/petsc)
 
 # Environment
 - Use `uv` for all Python operations.
