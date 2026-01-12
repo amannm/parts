@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 import math
-
 import cadquery as cq
-
 from features.magnet import (
     magnet_pockets_and_solids_for_pole,
     polar_xy,

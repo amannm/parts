@@ -1,5 +1,3 @@
-"""Single-layer V-type IPMSM 2D lamination generator (CadQuery 2.x)"""
-
 import os
 import sys
 import types
