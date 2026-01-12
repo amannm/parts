@@ -7,6 +7,7 @@
 - [DOLFINx Source Code](reference/dolfinx)
 - [UFL Source Code](reference/ufl)
 - [PETSc Source Code](reference/petsc)
+- [ParaView Source Code](reference/paraview)
 
 # Environment
 - Use `uv` for all Python operations.
