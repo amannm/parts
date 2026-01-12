@@ -1,8 +1,11 @@
 # Project objectives
-- A workflow to create STEP files based on 2D drawings using CadQuery.
+- An end-to-end CAD and FEA solution.
 
-# Reference material
-- [CadQuery Source Code (symlinked directory)](reference/cadquery)
+# Reference material (symlinked)
+- [CadQuery Source Code](reference/cadquery)
+- [Gmsh Source Code](reference/gmsh)
+- [DOLFINx Source Code](reference/dolfinx)
+- [UFL Source Code](reference/ufl)
 
 # Environment
 - Use `uv` for all Python operations.
