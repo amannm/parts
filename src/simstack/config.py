@@ -37,6 +37,7 @@ class MeshingQAConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     min_quality: Optional[float] = None
+    quality_bins: int = 10
     require_all_facets_tagged: bool = True
     allow_overlaps: bool = False
 

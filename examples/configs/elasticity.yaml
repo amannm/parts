@@ -1,0 +1,52 @@
+geometry:
+  builder: block_with_hole
+  params:
+    length: 1.0
+    width: 1.0
+    height: 1.0
+    hole_radius: 0.2
+  units: m
+
+tags:
+  facets:
+    - name: left
+      rule: PlaneAtMin
+      params:
+        axis: x
+    - name: right
+      rule: PlaneAtMax
+      params:
+        axis: x
+  cells:
+    - name: solid
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.1
+
+physics:
+  model: elasticity
+  parameters:
+    E: 200000000000.0
+    nu: 0.3
+    body_force: [0.0, 0.0, 0.0]
+    derived: ["von_mises"]
+
+bcs:
+  items:
+    - type: dirichlet
+      tag: left
+      value: [0.0, 0.0, 0.0]
+    - type: neumann
+      tag: right
+      value: [1000000.0, 0.0, 0.0]
+
+materials:
+  by_tag:
+    solid:
+      E: 200000000000.0
+      nu: 0.3
+
+outputs:
+  directory: out
+  format: vtx

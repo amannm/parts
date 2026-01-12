@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List
 
 from simstack.config import MeshingConfig, TagsConfig
 from simstack.mesh.tag_transfer import TagTransferResult, apply_tag_rules
@@ -52,32 +52,65 @@ def _apply_mesh_options(config: MeshingConfig) -> None:
             gmsh.option.setString(str(key), str(value))
 
 
+def _coverage_report(
+    entities: list[tuple[int, int]],
+    tag_map: Dict[str, List[int]],
+) -> Dict[str, Any]:
+    counts: Dict[int, int] = {tag: 0 for _dim, tag in entities}
+    per_tag_counts: Dict[str, int] = {}
+    for name, selected in tag_map.items():
+        per_tag_counts[name] = len(selected)
+        for tag in selected:
+            counts[tag] = counts.get(tag, 0) + 1
+
+    missing = [tag for tag, count in counts.items() if count == 0]
+    overlaps = [tag for tag, count in counts.items() if count > 1]
+
+    return {
+        "total_entities": len(entities),
+        "tagged_entities": len([tag for tag, count in counts.items() if count > 0]),
+        "missing_entities": missing,
+        "overlap_entities": overlaps,
+        "per_tag_counts": per_tag_counts,
+    }
+
+
 def _check_tag_coverage(
     tag_result: TagTransferResult,
     facet_entities: list[tuple[int, int]],
     require_all_facets: bool,
     allow_overlaps: bool,
-) -> None:
-    if not require_all_facets and allow_overlaps:
-        return
+) -> Dict[str, Any]:
+    report = _coverage_report(facet_entities, tag_result.facet_entities)
 
-    counts: Dict[int, int] = {tag: 0 for _dim, tag in facet_entities}
-    for selected in tag_result.facet_entities.values():
-        for tag in selected:
-            counts[tag] = counts.get(tag, 0) + 1
+    if require_all_facets and report["missing_entities"]:
+        raise ValueError(f"Facet coverage incomplete; missing {len(report['missing_entities'])} facets")
 
-    if require_all_facets:
-        missing = [tag for tag, count in counts.items() if count == 0]
-        if missing:
-            raise ValueError(f"Facet coverage incomplete; missing {len(missing)} facets")
+    if not allow_overlaps and report["overlap_entities"]:
+        raise ValueError(f"Facet overlap detected for {len(report['overlap_entities'])} facets")
 
-    if not allow_overlaps:
-        overlaps = [tag for tag, count in counts.items() if count > 1]
-        if overlaps:
-            raise ValueError(f"Facet overlap detected for {len(overlaps)} facets")
+    return report
 
 
-def _mesh_quality_stats() -> Dict[str, Any]:
+def _mesh_quality_histogram(values: list[float], bins: int) -> Dict[str, Any]:
+    if not values:
+        return {}
+    if bins <= 0:
+        bins = 10
+    vmin = min(values)
+    vmax = max(values)
+    if vmax == vmin:
+        return {"bins": [vmin, vmax], "counts": [len(values)]}
+    step = (vmax - vmin) / bins
+    edges = [vmin + i * step for i in range(bins + 1)]
+    counts = [0 for _ in range(bins)]
+    for v in values:
+        idx = min(int((v - vmin) / step), bins - 1)
+        counts[idx] += 1
+    return {"bins": edges, "counts": counts}
+
+
+def _mesh_quality_stats(bins: int) -> Dict[str, Any]:
     import gmsh
 
     try:
@@ -89,7 +122,14 @@ def _mesh_quality_stats() -> Dict[str, Any]:
     qmin = min(qualities)
     qmax = max(qualities)
     qavg = sum(qualities) / len(qualities)
-    return {"min_quality": qmin, "max_quality": qmax, "avg_quality": qavg, "count": len(qualities)}
+    hist = _mesh_quality_histogram(list(qualities), bins)
+    return {
+        "min_quality": qmin,
+        "max_quality": qmax,
+        "avg_quality": qavg,
+        "count": len(qualities),
+        "histogram": hist,
+    }
 
 
 def build_gmsh_model(step_path: str | Path, tags: TagsConfig, config: MeshingConfig) -> GmshBuildResult:
@@ -110,7 +150,7 @@ def build_gmsh_model(step_path: str | Path, tags: TagsConfig, config: MeshingCon
     tag_result = apply_tag_rules(gmsh.model, tags)
 
     facet_entities = gmsh.model.getEntities(2)
-    _check_tag_coverage(
+    facet_coverage = _check_tag_coverage(
         tag_result,
         facet_entities,
         require_all_facets=config.qa.require_all_facets_tagged,
@@ -119,7 +159,10 @@ def build_gmsh_model(step_path: str | Path, tags: TagsConfig, config: MeshingCon
 
     gmsh.model.mesh.generate(3)
 
-    mesh_stats = _mesh_quality_stats()
+    mesh_stats = _mesh_quality_stats(config.qa.quality_bins)
+    cell_entities = gmsh.model.getEntities(3)
+    cell_coverage = _coverage_report(cell_entities, tag_result.cell_entities)
+    mesh_stats["tag_coverage"] = {"facets": facet_coverage, "cells": cell_coverage}
     if config.qa.min_quality is not None:
         min_quality = mesh_stats.get("min_quality")
         if min_quality is not None and min_quality < config.qa.min_quality:
