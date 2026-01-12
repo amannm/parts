@@ -45,7 +45,13 @@ def collect_versions(packages: Iterable[str]) -> Dict[str, Optional[str]]:
     return versions
 
 
-def build_provenance(config_dict: Dict[str, Any], repo_root: str | Path) -> Dict[str, Any]:
+def build_provenance(
+    config_dict: Dict[str, Any],
+    repo_root: str | Path,
+    *,
+    tag_map: Optional[Dict[str, Dict[str, int]]] = None,
+    mesh_stats: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat()
     packages = [
         "cadquery",
@@ -57,7 +63,7 @@ def build_provenance(config_dict: Dict[str, Any], repo_root: str | Path) -> Dict
         "pyyaml",
         "pydantic",
     ]
-    return {
+    provenance: Dict[str, Any] = {
         "timestamp": timestamp,
         "python": sys.version,
         "platform": platform.platform(),
@@ -66,3 +72,8 @@ def build_provenance(config_dict: Dict[str, Any], repo_root: str | Path) -> Dict
         "config_hash": stable_hash(config_dict),
         "config": config_dict,
     }
+    if tag_map is not None:
+        provenance["tag_map"] = tag_map
+    if mesh_stats is not None:
+        provenance["mesh_stats"] = mesh_stats
+    return provenance

@@ -35,16 +35,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
         )
     project = Project(config, repo_root=Path.cwd())
 
-    out_dir = Path(args.out)
+    out_dir = project.output_root()
     if args.dry_run:
         report_path = project.write_dry_run_report(out_dir / "reports")
         if config.outputs.write_reports:
             project.write_provenance(out_dir / "reports")
         print(f"Dry run completed. Report: {report_path}")
+        print(f"Output directory: {out_dir}")
         return 0
 
     results = project.run()
     print(f"Run completed. Outputs: {results.get('outputs')}")
+    if results.get("out_dir"):
+        print(f"Output directory: {results['out_dir']}")
     if results.get("provenance"):
         print(f"Provenance: {results['provenance']}")
     return 0

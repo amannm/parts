@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from simstack.config import SimStackConfig, config_to_dict
-from simstack.core.provenance import build_provenance
+from simstack.core.provenance import build_provenance, stable_hash
 from simstack.cad.build import build_geometry
 from simstack.mesh.mesh_build import GmshSession, build_gmsh_model
 from simstack.mesh.import_dolfinx import model_to_mesh
@@ -20,13 +20,34 @@ class Project:
         self.config = config
         self.repo_root = Path(repo_root)
 
+    def run_hash(self) -> str:
+        return stable_hash(config_to_dict(self.config))
+
+    def output_root(self) -> Path:
+        base = Path(self.config.outputs.directory)
+        run_hash = self.run_hash()
+        if base.name == run_hash:
+            return base
+        return base / run_hash
+
     def dry_run_plan(self) -> List[str]:
         return ["cad", "mesh", "solve", "post"]
 
-    def write_provenance(self, out_dir: str | Path) -> str:
+    def write_provenance(
+        self,
+        out_dir: str | Path,
+        *,
+        tag_map: Dict[str, Dict[str, int]] | None = None,
+        mesh_stats: Dict[str, Any] | None = None,
+    ) -> str:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        provenance = build_provenance(config_to_dict(self.config), self.repo_root)
+        provenance = build_provenance(
+            config_to_dict(self.config),
+            self.repo_root,
+            tag_map=tag_map,
+            mesh_stats=mesh_stats,
+        )
         path = out_dir / "provenance.json"
         path.write_text(json.dumps(provenance, indent=2, sort_keys=True))
         return str(path)
@@ -37,13 +58,29 @@ class Project:
         report: Dict[str, Any] = {
             "stages": self.dry_run_plan(),
             "note": "dry run only; no CAD/mesh/solve executed",
+            "run_hash": self.run_hash(),
+            "out_dir": str(self.output_root()),
         }
         path = out_dir / "dry_run.json"
         path.write_text(json.dumps(report, indent=2, sort_keys=True))
         return str(path)
 
+    def _update_latest_pointer(self, out_root: Path) -> None:
+        base = Path(self.config.outputs.directory)
+        base.mkdir(parents=True, exist_ok=True)
+        latest = base / "latest"
+        if latest.exists() or latest.is_symlink():
+            if latest.is_symlink() or latest.is_file():
+                latest.unlink()
+            else:
+                return
+        try:
+            latest.symlink_to(out_root)
+        except OSError:
+            return
+
     def run(self) -> Dict[str, Any]:
-        out_root = Path(self.config.outputs.directory)
+        out_root = self.output_root()
         reports_dir = out_root / "reports"
         mesh_dir = out_root / "mesh"
         fields_dir = out_root / "fields"
@@ -112,11 +149,18 @@ class Project:
 
         provenance_path = None
         if rank == 0 and self.config.outputs.write_reports:
-            provenance_path = self.write_provenance(reports_dir)
+            provenance_path = self.write_provenance(
+                reports_dir,
+                tag_map=tag_map,
+                mesh_stats=gmsh_result.mesh_stats if gmsh_result is not None else None,
+            )
             report_path = reports_dir / "solve_report.json"
             report_path.write_text(json.dumps(solve_artifact.solver_report, indent=2, sort_keys=True))
+            self._update_latest_pointer(out_root)
 
         return {
             "outputs": output_paths,
             "provenance": provenance_path,
+            "run_hash": self.run_hash(),
+            "out_dir": str(out_root),
         }
