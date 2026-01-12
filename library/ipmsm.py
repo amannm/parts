@@ -8,6 +8,7 @@ from pathlib import Path
 from cadquery import exporters
 from cadquery.vis import show
 
+
 def _ensure_local_library_pkg() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     library_dir = repo_root / "library"
@@ -26,7 +27,6 @@ _ensure_local_library_pkg()
 
 from library.features.stator import make_stator
 from library.features.rotor import make_rotor_and_magnets
-
 
 P = {
     "global": {
@@ -66,50 +66,21 @@ P = {
     },
     "rotor": {
         "D_ro": 138.0,
-        "D_sh": 40.0,
-        "keyway_enabled": False,
-        "keyway_w": 6.0,
-        "keyway_d": 3.0,
-        "keyway_angle_deg": 0.0,
-        "holes_enabled": False,
-        "holes_count": 2,
-        "holes_d": 6.0,
-        "holes_r": 25.0,
-        "holes_angle_offset_deg": 90.0,
+        "D_sh": 70.0,
     },
     "magnets": {
-        "alpha_v_deg": 22.0,
+        "alpha_v_deg": 60.0,
         "use_center_post_width": False,  # use explicit R_m_c (keeps V pockets at expected radius)
         "b_post": 6.0,
-        "b_post_is_outer": True,  # interpret b_post as outer rib width (V opens toward airgap)
+        "b_post_is_outer": False,  # interpret b_post as outer rib width (V opens toward airgap)
         "enforce_rib_clip": True,  # prevents V legs from overlapping into "arrow" pockets
-        "L_m": 30.0,
+        "L_m": 18.0,
         "t_m": 6.0,
         "clearance": 0.2,
         "R_m_c": 52.0,
         "auto_clamp_R_m_c": True,  # clamp R_m_c to satisfy outer bridge constraint
         "rotor_bridge_od": 1.5,
         "magnet_chamfer": 0.0,
-    },
-    "barriers": {
-        # Tip: set arc_barrier_enabled/v_cavity_enabled to False first to verify magnet pocket placement.
-        # Magnet-aligned barriers (recommended for V-type look)
-        "aligned_barrier_enabled": False,  # start with a clean V-pocket; enable after verifying geometry
-        "aligned_barrier_length": 18.0,      # mm, cavity length behind each magnet leg
-        "aligned_barrier_width_extra": 2.0,  # mm, adds to pocket thickness tp
-        "aligned_barrier_gap": 1.5,          # mm, gap between pocket inner tip and barrier cavity
-        "aligned_barrier_hub_margin": 3.0,  # mm: keep aligned barriers away from shaft/hub
-        "hub_keepout_margin": 4.0,          # mm: keepout margin applied to all cutters (pockets/barriers)
-        "arc_barrier_enabled": False,
-        "arc_r_in": 28.0,
-        "arc_r_out": 40.0,
-        "arc_span_deg": 30.0,
-        "arc_segments": 32,
-        "arc_clearance_to_pocket": 1.5,  # mm: barrier stays this far inside the V-pocket inner tips
-        "arc_min_thickness": 2.0,        # mm: minimum barrier radial thickness
-        "v_cavity_enabled": False,
-        "v_cavity_depth": 4.0,
-        "v_cavity_inset": 1.0,
     },
 }
 
@@ -121,25 +92,20 @@ def ensure_dir(path: str) -> None:
 def export_all(stator, rotor, magnets=None):
     if not P["build"]["export_enabled"]:
         return
-
     out_dir = P["build"]["export_dir"]
     base = P["build"]["export_basename"]
     ensure_dir(out_dir)
-
     exporters.export(stator, os.path.join(out_dir, f"{base}_stator.step"))
     exporters.export(rotor, os.path.join(out_dir, f"{base}_rotor.step"))
     if magnets is not None:
         exporters.export(magnets, os.path.join(out_dir, f"{base}_magnets.step"))
-
     exporters.export(stator.union(rotor), os.path.join(out_dir, f"{base}_combined.step"))
-
     if P["build"].get("dxf_from_top_face", True):
         try:
             exporters.exportDXF(stator.faces(">Z").val(), os.path.join(out_dir, f"{base}_stator.dxf"))
             exporters.exportDXF(rotor.faces(">Z").val(), os.path.join(out_dir, f"{base}_rotor.dxf"))
         except Exception:
             print("WARN: DXF export failed.")
-
     if P["build"].get("png_enabled", False):
         w = int(P["build"].get("png_width", 1400))
         h = int(P["build"].get("png_height", 1000))
@@ -147,7 +113,6 @@ def export_all(stator, rotor, magnets=None):
         gradient = bool(P["build"].get("png_gradient", False))
         trihedron = bool(P["build"].get("png_trihedron", False))
         bgcolor = tuple(P["build"].get("png_bgcolor", (1.0, 1.0, 1.0)))
-
         show(stator, screenshot=os.path.join(out_dir, f"{base}_stator.png"), interact=False,
              edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
         show(rotor, screenshot=os.path.join(out_dir, f"{base}_rotor.png"), interact=False,
@@ -155,7 +120,6 @@ def export_all(stator, rotor, magnets=None):
         if magnets is not None:
             show(magnets, screenshot=os.path.join(out_dir, f"{base}_magnets.png"), interact=False,
                  edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
-
         show(stator.union(rotor), screenshot=os.path.join(out_dir, f"{base}_combined.png"), interact=False,
              edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
 
@@ -163,8 +127,6 @@ def export_all(stator, rotor, magnets=None):
 if __name__ == "__main__":
     stator = make_stator(P)
     rotor, magnets = make_rotor_and_magnets(P)
-
     export_all(stator, rotor, magnets)
-
     if P["build"].get("show_interactive", True):
         show(stator.union(rotor), width=1280, height=720, interact=True)
