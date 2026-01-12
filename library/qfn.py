@@ -8,7 +8,7 @@ from features.pin import (
     LeadLayout,
     add_leads_to_assembly,
     cut_body_for_leads,
-    rectangular_lead_sets,
+    rectangular_pin_sets,
     union_leads,
 )
 from features.thermal_pad import build_thermal_pad
@@ -23,11 +23,11 @@ class QFNParams:
     standoff: float = 0.035  # A1 standoff (0.000-0.050, nom 0.035)
 
     # Lead dimensions
-    lead_length: float = 0.35  # L lead length (0.30-0.40, nom 0.35)
-    lead_width: float = 0.20  # b lead width (0.15-0.25, nom 0.20)
-    lead_height: float = 0.203  # A4 lead thickness (nom 0.203)
-    lead_pitch: float = 0.40  # e pitch (nom 0.40)
-    lead_setback: float = 0.0  # leads flush with package edge
+    pin_length: float = 0.35  # L lead length (0.30-0.40, nom 0.35)
+    pin_width: float = 0.20  # b lead width (0.15-0.25, nom 0.20)
+    pin_height: float = 0.203  # A4 lead thickness (nom 0.203)
+    pin_pitch: float = 0.40  # e pitch (nom 0.40)
+    pin_setback: float = 0.0  # leads flush with package edge
 
     # Pin count (10 per side for QFN40)
     leads_per_side: int = 10
@@ -39,7 +39,7 @@ class QFNParams:
     thermal_pad_pin1_chamfer: float = 0.35  # Chamfer on pin 1 corner (0 disables)
 
     # Lead chamfer (K dimension from spec, applied to outer corners)
-    lead_chamfer: float = 0.07  # Chamfer on outer corners of leads
+    pin_chamfer: float = 0.07  # Chamfer on outer corners of leads
 
     # Pin 1 marker
     pin1_marker_diameter: float = 0.4
@@ -58,22 +58,22 @@ def _build_pin1_marker(params: QFNParams) -> cq.Workplane:
     )
 
 
-def _lead_layout(params: QFNParams) -> LeadLayout:
+def _pin_layout(params: QFNParams) -> LeadLayout:
     return LeadLayout(
         body_x=params.body_x,
         body_y=params.body_y,
-        pitch=params.lead_pitch,
-        setback=params.lead_setback,
+        pitch=params.pin_pitch,
+        setback=params.pin_setback,
         leads_per_lr_side=params.leads_per_side,
         leads_per_td_side=params.leads_per_side,
     )
 
 
-def _lead_dims(params: QFNParams) -> LeadDims:
+def _pin_dims(params: QFNParams) -> LeadDims:
     return LeadDims(
-        length=params.lead_length,
-        width=params.lead_width,
-        height=params.lead_height,
+        length=params.pin_length,
+        width=params.pin_width,
+        height=params.pin_height,
     )
 
 
@@ -83,18 +83,18 @@ def build_model(params: QFNParams | None = None) -> cq.Workplane:
     body = build_body(params)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
-    layout = _lead_layout(params)
-    lead_dims = _lead_dims(params)
-    lead_sets = rectangular_lead_sets(
+    layout = _pin_layout(params)
+    pin_dims = _pin_dims(params)
+    pin_sets = rectangular_pin_sets(
         layout,
-        lead_dims,
+        pin_dims,
         dimple=None,
         grounded=None,
         profile="chamfered",
-        chamfer=params.lead_chamfer,
+        chamfer=params.pin_chamfer,
     )
-    body = cut_body_for_leads(body, lead_sets.cuts)
-    model = union_leads(body, lead_sets.leads)
+    body = cut_body_for_leads(body, pin_sets.cuts)
+    model = union_leads(body, pin_sets.leads)
     thermal_pad = build_thermal_pad(params)
     model = model.union(thermal_pad)
     return model
@@ -107,19 +107,19 @@ def build_assembly(params: QFNParams | None = None) -> cq.Assembly:
     body = build_body(params)
     pin1_marker = _build_pin1_marker(params)
     body = body.cut(pin1_marker)
-    layout = _lead_layout(params)
-    lead_dims = _lead_dims(params)
-    lead_sets = rectangular_lead_sets(
+    layout = _pin_layout(params)
+    pin_dims = _pin_dims(params)
+    pin_sets = rectangular_pin_sets(
         layout,
-        lead_dims,
+        pin_dims,
         dimple=None,
         grounded=None,
         profile="chamfered",
-        chamfer=params.lead_chamfer,
+        chamfer=params.pin_chamfer,
     )
-    body = cut_body_for_leads(body, lead_sets.cuts)
+    body = cut_body_for_leads(body, pin_sets.cuts)
     assembly.add(body, name="body")
-    add_leads_to_assembly(assembly, lead_sets.leads)
+    add_leads_to_assembly(assembly, pin_sets.leads)
     thermal_pad = build_thermal_pad(params)
     assembly.add(thermal_pad, name="thermal_pad")
     return assembly

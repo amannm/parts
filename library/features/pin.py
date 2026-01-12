@@ -102,12 +102,12 @@ def grounded_td_indices(leads_per_td_side: int, grounded_per_td_side: int) -> se
     return set(range(grounded_start + 1, grounded_start + grounded_count + 1))
 
 
-def lead_dimple_cut(dimple: LeadDimple, lead_offset: float) -> cq.Workplane:
+def pin_dimple_cut(dimple: LeadDimple, pin_offset: float) -> cq.Workplane:
     radius = max(dimple.width, dimple.height, dimple.depth) / 2.0 - 0.000000001
     wp = (
         cq.Workplane("XY")
         .box(dimple.depth, dimple.width, dimple.height, centered=(False, True, False))
-        .translate((lead_offset, 0, 0))
+        .translate((pin_offset, 0, 0))
     )
     e_on_z = wp.faces(">Z").edges("|X or >X")
     e_on_x = wp.faces(">X").edges("|Z or >Z")
@@ -117,14 +117,14 @@ def lead_dimple_cut(dimple: LeadDimple, lead_offset: float) -> cq.Workplane:
 def _apply_dimple(
     lead: cq.Workplane,
     dimple: LeadDimple | None,
-    lead_length: float,
+    pin_length: float,
 ) -> cq.Workplane:
     if dimple is None:
         return lead
-    return lead.cut(lead_dimple_cut(dimple, -lead_length / 2))
+    return lead.cut(pin_dimple_cut(dimple, -pin_length / 2))
 
 
-def rectangular_lead_instances(
+def rectangular_pin_instances(
     layout: LeadLayout,
     lead: LeadDims,
     *,
@@ -177,18 +177,18 @@ def rectangular_lead_instances(
     td_positions = positions(layout.leads_per_td_side, layout.pitch)
     for idx, x in enumerate(td_positions, start=1):
         use_grounded = idx in grounded_indices
-        lead_solid = grounded_lead if use_grounded else base_lead
+        pin_solid = grounded_lead if use_grounded else base_lead
         length = grounded_length if use_grounded else lead.length
         y_top = layout.body_y / 2 - layout.setback - length / 2
         y_bottom = -layout.body_y / 2 + layout.setback + length / 2
-        top = lead_solid.rotate((0, 0, 0), (0, 0, 1), -90).translate((x, y_top, 0))
-        bottom = lead_solid.rotate((0, 0, 0), (0, 0, 1), 90).translate((x, y_bottom, 0))
+        top = pin_solid.rotate((0, 0, 0), (0, 0, 1), -90).translate((x, y_top, 0))
+        bottom = pin_solid.rotate((0, 0, 0), (0, 0, 1), 90).translate((x, y_bottom, 0))
         leads.append((f"{prefix}_T{idx}", top))
         leads.append((f"{prefix}_B{idx}", bottom))
     return leads
 
 
-def rectangular_lead_sets(
+def rectangular_pin_sets(
     layout: LeadLayout,
     lead: LeadDims,
     *,
@@ -199,7 +199,7 @@ def rectangular_lead_sets(
     profile: Literal["flat", "rounded", "chamfered"] = "rounded",
     chamfer: float = 0.0,
 ) -> LeadSets:
-    lead_cuts = rectangular_lead_instances(
+    pin_cuts = rectangular_pin_instances(
         layout,
         lead,
         prefix=cut_prefix,
@@ -208,7 +208,7 @@ def rectangular_lead_sets(
         profile=profile,
         chamfer=chamfer,
     )
-    lead_solids = rectangular_lead_instances(
+    pin_solids = rectangular_pin_instances(
         layout,
         lead,
         prefix=prefix,
@@ -217,14 +217,14 @@ def rectangular_lead_sets(
         profile=profile,
         chamfer=chamfer,
     )
-    return LeadSets(cuts=lead_cuts, leads=lead_solids)
+    return LeadSets(cuts=pin_cuts, leads=pin_solids)
 
 
 def cut_body_for_leads(
     body: cq.Workplane,
-    lead_cuts: Iterable[tuple[str, cq.Workplane]],
+    pin_cuts: Iterable[tuple[str, cq.Workplane]],
 ) -> cq.Workplane:
-    for _, lead in lead_cuts:
+    for _, lead in pin_cuts:
         body = body.cut(lead)
     return body
 

@@ -4,10 +4,6 @@ import cadquery as cq
 
 
 def make_slot_cutter(P):
-    """
-    Returns a *solid* cutter for one slot, located at angle 0 (along +X) with the opening at the bore.
-    Slot points are defined in XY, then extruded both directions.
-    """
     s = P["stator"]
     t = P["build"]["lam_thickness"]
     R_si = s["D_si"] / 2

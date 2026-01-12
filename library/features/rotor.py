@@ -13,7 +13,6 @@ from magnet import (
 
 
 def annulus_sector_solid(r_in, r_out, a_center_deg, span_deg, t, nseg=32):
-    """Approximate an annulus sector with a closed polyline (outer arc then inner arc reversed)."""
     a1 = a_center_deg - span_deg / 2
     a2 = a_center_deg + span_deg / 2
     outer = [polar_xy(r_out, a1 + (a2 - a1) * i / nseg) for i in range(nseg + 1)]
@@ -23,7 +22,6 @@ def annulus_sector_solid(r_in, r_out, a_center_deg, span_deg, t, nseg=32):
 
 
 def make_rotor_and_magnets(P):
-    """Returns (rotor_steel_solid, magnets_solid_or_None)."""
     g = P["global"]
     r = P["rotor"]
     m = P["magnets"]

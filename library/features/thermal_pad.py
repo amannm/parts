@@ -65,7 +65,7 @@ def thermal_pad_solids(
     pad: ThermalPadSpec,
     *,
     layout: LeadLayout,
-    lead_width: float,
+    pin_width: float,
     grounded_indices: set[int],
 ) -> list[tuple[str, cq.Workplane]]:
     pad_solid = (
@@ -83,8 +83,8 @@ def thermal_pad_solids(
     grounded_positions = [td_positions[idx - 1] for idx in sorted(grounded_indices)]
     inner_pair = sorted(sorted(grounded_positions, key=abs)[:2])
     left_center, right_center = inner_pair
-    x_min = left_center + lead_width / 2
-    x_max = right_center - lead_width / 2
+    x_min = left_center + pin_width / 2
+    x_max = right_center - pin_width / 2
     strip_width = x_max - x_min
     if strip_width <= 0:
         return solids
@@ -104,7 +104,7 @@ def thermal_pad_solids_for_params(
     params: ThermalPadStripParams,
     *,
     layout: LeadLayout,
-    lead_width: float,
+    pin_width: float,
     grounded_indices: set[int],
 ) -> list[tuple[str, cq.Workplane]]:
     pad_spec = ThermalPadSpec(
@@ -117,7 +117,7 @@ def thermal_pad_solids_for_params(
     for name, solid in thermal_pad_solids(
         pad_spec,
         layout=layout,
-        lead_width=lead_width,
+        pin_width=pin_width,
         grounded_indices=grounded_indices,
     ):
         if name == "thermal_pad":

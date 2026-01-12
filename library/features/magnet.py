@@ -10,13 +10,11 @@ def deg2rad(d: float) -> float:
 
 
 def polar_xy(r: float, theta_deg: float) -> tuple[float, float]:
-    """theta_deg measured from +X, CCW."""
     th = deg2rad(theta_deg)
     return (r * math.cos(th), r * math.sin(th))
 
 
 def rect_solid(L: float, W: float, t: float) -> cq.Workplane:
-    """Centered rectangle extruded symmetrically about the XY plane."""
     return cq.Workplane("XY").rect(L, W).extrude(t, both=True)
 
 
@@ -40,7 +38,6 @@ def compute_Rmc_from_post(P) -> float:
 
 
 def magnet_pockets_and_solids_for_pole(P, pole_center: float, R_mc: float, Lp: float, tp: float, t: float):
-    """Two rectangular pockets per pole (single-layer V)."""
     m = P["magnets"]
     pocket_cutters = None
     magnet_solids = None
