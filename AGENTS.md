@@ -1,5 +1,5 @@
 # Project objectives
-- An end-to-end CAD and FEA solution.
+- An integrated CAD and Multiphysics system.
 
 # Reference material (symlinked)
 - [CadQuery Source Code](reference/cadquery)
