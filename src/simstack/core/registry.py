@@ -42,3 +42,12 @@ DEFAULT_REGISTRY = Registry(
         }
     }
 )
+
+
+def _register_defaults() -> None:
+    from simstack.fem.physics.poisson import PoissonModel
+
+    DEFAULT_REGISTRY.register_physics("poisson", PoissonModel)
+
+
+_register_defaults()

@@ -27,6 +27,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    if args.out:
+        config = config.model_copy(
+            update={
+                "outputs": config.outputs.model_copy(update={"directory": args.out}),
+            }
+        )
     project = Project(config, repo_root=Path.cwd())
 
     out_dir = Path(args.out)
@@ -37,8 +43,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Dry run completed. Report: {report_path}")
         return 0
 
-    print("Execution pipeline not implemented yet. Use --dry-run for now.")
-    return 2
+    results = project.run()
+    print(f"Run completed. Outputs: {results.get('outputs')}")
+    if results.get("provenance"):
+        print(f"Provenance: {results['provenance']}")
+    return 0
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
