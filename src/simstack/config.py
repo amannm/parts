@@ -97,6 +97,7 @@ class OutputsConfig(BaseModel):
     format: Literal["vtx", "xdmf", "both"] = "vtx"
     write_mesh: bool = True
     write_reports: bool = True
+    reuse: bool = True
 
 
 class SimStackConfig(BaseModel):

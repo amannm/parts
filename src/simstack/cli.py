@@ -18,6 +18,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("config", help="Path to config YAML")
     run.add_argument("--out", default="out", help="Output directory (default: out)")
     run.add_argument("--dry-run", action="store_true", help="Only validate and emit dry-run report")
+    run.add_argument("--force", action="store_true", help="Ignore cached outputs and re-run")
 
     validate = sub.add_parser("validate", help="Validate a config file")
     validate.add_argument("config", help="Path to config YAML")
@@ -31,6 +32,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         config = config.model_copy(
             update={
                 "outputs": config.outputs.model_copy(update={"directory": args.out}),
+            }
+        )
+    if args.force:
+        config = config.model_copy(
+            update={
+                "outputs": config.outputs.model_copy(update={"reuse": False}),
             }
         )
     project = Project(config, repo_root=Path.cwd())
@@ -50,6 +57,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Output directory: {results['out_dir']}")
     if results.get("provenance"):
         print(f"Provenance: {results['provenance']}")
+    if results.get("cached"):
+        print("Cache hit: reused existing outputs.")
     return 0
 
 

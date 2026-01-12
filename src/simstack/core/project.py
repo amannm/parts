@@ -30,6 +30,59 @@ class Project:
             return base
         return base / run_hash
 
+    def _collect_cached_outputs(self, out_root: Path) -> Dict[str, Dict[str, str]] | None:
+        fields_dir = out_root / "fields"
+        results: Dict[str, Dict[str, str]] = {"vtx": {}, "xdmf": {}}
+
+        if self.config.outputs.format in {"vtx", "both"}:
+            vtx_path = fields_dir / "fields.bp"
+            if not vtx_path.exists():
+                return None
+            results["vtx"] = {"fields": str(vtx_path)}
+
+        if self.config.outputs.format in {"xdmf", "both"}:
+            xdmf_path = fields_dir / "fields.xdmf"
+            if not xdmf_path.exists():
+                return None
+            results["xdmf"] = {"fields": str(xdmf_path)}
+
+        return results
+
+    def _load_cached_results(self, out_root: Path) -> Dict[str, Any] | None:
+        if not out_root.exists():
+            return None
+
+        outputs = self._collect_cached_outputs(out_root)
+        if outputs is None:
+            return None
+
+        if self.config.outputs.write_mesh:
+            mesh_dir = out_root / "mesh"
+            mesh_path = mesh_dir / "mesh.xdmf"
+            tag_map_path = mesh_dir / "tag_map.json"
+            if not mesh_path.exists() or not tag_map_path.exists():
+                return None
+
+        provenance_path = out_root / "reports" / "provenance.json"
+        solve_report_path = out_root / "reports" / "solve_report.json"
+        if self.config.outputs.write_reports:
+            if not provenance_path.exists() or not solve_report_path.exists():
+                return None
+            try:
+                data = json.loads(provenance_path.read_text())
+            except json.JSONDecodeError:
+                return None
+            if data.get("config_hash") != self.run_hash():
+                return None
+
+        return {
+            "outputs": outputs,
+            "provenance": str(provenance_path) if provenance_path.exists() else None,
+            "run_hash": self.run_hash(),
+            "out_dir": str(out_root),
+            "cached": True,
+        }
+
     def dry_run_plan(self) -> List[str]:
         return ["cad", "mesh", "solve", "post"]
 
@@ -92,6 +145,15 @@ class Project:
 
         comm = MPI.COMM_WORLD
         rank = comm.rank
+
+        cached = None
+        if self.config.outputs.reuse and rank == 0:
+            cached = self._load_cached_results(out_root)
+            if cached is not None:
+                self._update_latest_pointer(out_root)
+        cached = comm.bcast(cached, root=0)
+        if cached is not None:
+            return cached
 
         cad_artifact = None
         if rank == 0:
