@@ -81,6 +81,8 @@ P = {
         "alpha_v_deg": 22.0,
         "use_center_post_width": False,  # use explicit R_m_c (keeps V pockets at expected radius)
         "b_post": 6.0,
+        "b_post_is_outer": True,  # interpret b_post as outer rib width (V opens toward airgap)
+        "enforce_rib_clip": True,  # prevents V legs from overlapping into "arrow" pockets
         "L_m": 30.0,
         "t_m": 6.0,
         "clearance": 0.2,

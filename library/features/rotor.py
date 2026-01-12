@@ -99,10 +99,20 @@ def make_rotor_and_magnets(P):
     cos_a = math.cos(alpha_rad)
 
     b_post = float(m.get("b_post", 0.0))
-    dt = (Lp / 2.0) * sin_a + (b_post / 2.0)
+    # Tangential centroid offset.
+    # Default: b_post defines inner-tip separation.
+    # If b_post_is_outer=True: b_post defines the *outer* rib width (outer tips separation),
+    # which makes the V open toward the airgap like a typical IPMSM V-type.
+    if bool(m.get("b_post_is_outer", False)):
+        # outer_sep = 2*dt + Lp*sin(alpha)  =>  dt = (b_post - Lp*sin(alpha))/2
+        dt = (b_post / 2.0) - (Lp / 2.0) * sin_a
+    else:
+        # inner_sep = 2*dt - Lp*sin(alpha)  =>  dt = (Lp*sin(alpha) + b_post)/2
+        dt = (Lp / 2.0) * sin_a + (b_post / 2.0)
     dt_min = (tp / 2.0) + 0.2
-    if dt < dt_min:
-        dt = dt_min
+    # Enforce a minimum centroid separation magnitude to avoid overlapping pockets.
+    if abs(dt) < dt_min:
+        dt = math.copysign(dt_min, dt if abs(dt) > 1e-9 else 1.0)
 
     pocket_cutters = None
     magnet_solids = None
@@ -128,14 +138,17 @@ def make_rotor_and_magnets(P):
             er = (math.cos(pc_rad), math.sin(pc_rad))
             et = (-math.sin(pc_rad), math.cos(pc_rad))
 
-            # Tangential centroid offset (same rule as magnet.py)
+            # Tangential centroid offset (must match magnet.py placement)
             alpha_rad_local = math.radians(alpha)
             sin_a_local = math.sin(alpha_rad_local)
             b_post_local = float(m.get("b_post", 0.0))
-            dt_local = (Lp / 2.0) * sin_a_local + (b_post_local / 2.0)
+            if bool(m.get("b_post_is_outer", False)):
+                dt_local = (b_post_local / 2.0) - (Lp / 2.0) * sin_a_local
+            else:
+                dt_local = (Lp / 2.0) * sin_a_local + (b_post_local / 2.0)
             dt_min_local = (tp / 2.0) + 0.2
-            if dt_local < dt_min_local:
-                dt_local = dt_min_local
+            if abs(dt_local) < dt_min_local:
+                dt_local = math.copysign(dt_min_local, dt_local if abs(dt_local) > 1e-9 else 1.0)
 
             for sgn in (+1, -1):
                 axis_ang = pc + sgn * alpha

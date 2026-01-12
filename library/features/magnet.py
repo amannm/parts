@@ -69,13 +69,22 @@ def magnet_pockets_and_solids_for_pole(P, pole_center: float, R_mc: float, Lp: f
     alpha_rad = deg2rad(alpha_deg)
     sin_a = math.sin(alpha_rad)
 
-    # Tangential centroid offset so inner tips are separated by ~b_post
+    # Tangential centroid offset.
+    # Default: b_post defines inner-tip separation.
+    # If b_post_is_outer=True: b_post defines the *outer* rib width (outer tips separation),
+    # which makes the V open toward the airgap like a typical IPMSM V-type.
     b_post = float(m.get("b_post", 0.0))
-    dt = (Lp / 2.0) * sin_a + (b_post / 2.0)
+    if bool(m.get("b_post_is_outer", False)):
+        # outer_sep = 2*dt + Lp*sin(alpha)  =>  dt = (b_post - Lp*sin(alpha))/2
+        dt = (b_post / 2.0) - (Lp / 2.0) * sin_a
+    else:
+        # inner_sep = 2*dt - Lp*sin(alpha)  =>  dt = (Lp*sin(alpha) + b_post)/2
+        dt = (Lp / 2.0) * sin_a + (b_post / 2.0)
 
     dt_min = (tp / 2.0) + 0.2
-    if dt < dt_min:
-        dt = dt_min
+    # Enforce a minimum centroid separation magnitude to avoid overlapping pockets.
+    if abs(dt) < dt_min:
+        dt = math.copysign(dt_min, dt if abs(dt) > 1e-9 else 1.0)
 
     for sgn in (+1, -1):
         axis_ang = pc + sgn * alpha_deg
