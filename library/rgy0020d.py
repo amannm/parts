@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import cadquery as cq
 from cadquery.vis import show
-from features.body import build_body, export_step, union_solids
+from features.package import build_body, export_step, union_solids
 from features.pin import (
     GroundedLeadSpec,
     LeadDims,

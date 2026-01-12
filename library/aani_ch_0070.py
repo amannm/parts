@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import cadquery as cq
-from features.body import build_body, export_step, square_pin1_marker
+from features.package import build_body, export_step, square_pin1_marker
 
 
 @dataclass(frozen=True)
