@@ -16,8 +16,18 @@ def rect_solid(L: float, W: float, t: float) -> cq.Workplane:
     return cq.Workplane("XY").rect(L, W).extrude(t, both=True)
 
 
-def magnet_pockets_and_solids_for_pole(P, pole_center: float, R_mc: float, Lp: float, tp: float, t: float):
+def magnet_pockets_and_solids_for_pole(
+    P,
+    pole_center: float,
+    R_mc: float,
+    Lp: float,
+    tp: float,
+    pocket_thickness: float,
+    magnet_thickness: float | None = None,
+):
     m = P["magnets"]
+    if magnet_thickness is None:
+        magnet_thickness = pocket_thickness
     pocket_cutters = None
     magnet_solids = None
     pc = float(pole_center)
@@ -36,11 +46,13 @@ def magnet_pockets_and_solids_for_pole(P, pole_center: float, R_mc: float, Lp: f
         axis_ang = pc + sgn * alpha_deg
         cx = (R_mc * er[0]) + (sgn * dt * et[0])
         cy = (R_mc * er[1]) + (sgn * dt * et[1])
-        pocket = rect_solid(Lp, tp, t).rotate((0, 0, 0), (0, 0, 1), axis_ang)
+        pocket = rect_solid(Lp, tp, pocket_thickness).rotate((0, 0, 0), (0, 0, 1), axis_ang)
         pocket = pocket.translate((cx, cy, 0))
         pocket_cutters = pocket if pocket_cutters is None else pocket_cutters.union(pocket)
         if P["build"].get("include_magnets", False):
-            mag = rect_solid(float(m["L_m"]), float(m["t_m"]), t).rotate((0, 0, 0), (0, 0, 1), axis_ang)
+            mag = rect_solid(float(m["L_m"]), float(m["t_m"]), magnet_thickness).rotate(
+                (0, 0, 0), (0, 0, 1), axis_ang
+            )
             mag = mag.translate((cx, cy, 0))
             ch = float(m.get("magnet_chamfer", 0.0))
             if ch > 0:

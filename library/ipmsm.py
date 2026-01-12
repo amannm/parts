@@ -2,7 +2,9 @@ import os
 import sys
 import types
 from pathlib import Path
+import cadquery as cq
 from cadquery import exporters
+from cadquery.occ_impl.exporters import assembly as asm_export
 from cadquery.vis import show
 from features.stator import make_stator
 from features.rotor import make_rotor_and_magnets
@@ -42,10 +44,27 @@ P = {
         "slot_opening_inset": 0.1,
         "fillet_enabled": True,
         "fillet_r": 0.4,
+        "varnish_thickness": 0.1,
+        "stack_count": 20,
+        "steel_color": (0.2, 0.2, 0.2, 1.0),
+        "varnish_color": (0.98, 0.72, 0.2, 0.25),
     },
     "rotor": {
         "D_ro": 138.0,
         "D_sh": 70.0,
+        "varnish_thickness": 0.1,
+        "stack_count": 20,
+        "steel_color": (0.2, 0.2, 0.2, 1.0),
+        "varnish_color": (0.98, 0.72, 0.2, 0.25),
+    },
+    "winding": {
+        "enabled": True,
+        "kind": "hairpin",  # "hairpin" or "wire"
+        "slot_clearance": 0.1,
+        "varnish_thickness": 0.05,
+        "wire_fillet": 0.2,
+        "copper_color": (0.72, 0.45, 0.2, 1.0),
+        "varnish_color": (0.98, 0.72, 0.2, 0.25),
     },
     "magnets": {
         "alpha_v_deg": 60.0,
@@ -68,21 +87,52 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def export_all(stator, rotor, magnets=None):
+def _export_step(model, out_path: str) -> None:
+    if isinstance(model, cq.Assembly):
+        asm_export.exportAssembly(model, out_path)
+    else:
+        exporters.export(model, out_path)
+
+
+def _build_combined_assembly(stator, rotor, magnets=None) -> cq.Assembly:
+    combined = cq.Assembly()
+    combined.add(stator, name="stator")
+    combined.add(rotor, name="rotor")
+    if magnets is not None:
+        combined.add(magnets, name="magnets")
+    return combined
+
+
+def export_all(
+    stator,
+    rotor,
+    magnets=None,
+    varnish=None,
+    stator_steel=None,
+    rotor_varnish=None,
+    rotor_steel=None,
+):
     if not P["build"]["export_enabled"]:
         return
     out_dir = P["build"]["export_dir"]
     base = P["build"]["export_basename"]
     ensure_dir(out_dir)
-    exporters.export(stator, os.path.join(out_dir, f"{base}_stator.step"))
-    exporters.export(rotor, os.path.join(out_dir, f"{base}_rotor.step"))
+    _export_step(stator, os.path.join(out_dir, f"{base}_stator.step"))
+    _export_step(rotor, os.path.join(out_dir, f"{base}_rotor.step"))
+    if varnish is not None:
+        exporters.export(varnish, os.path.join(out_dir, f"{base}_stator_varnish.step"))
+    if rotor_varnish is not None:
+        exporters.export(rotor_varnish, os.path.join(out_dir, f"{base}_rotor_varnish.step"))
     if magnets is not None:
         exporters.export(magnets, os.path.join(out_dir, f"{base}_magnets.step"))
-    exporters.export(stator.union(rotor), os.path.join(out_dir, f"{base}_combined.step"))
+    combined = _build_combined_assembly(stator, rotor, magnets)
+    _export_step(combined, os.path.join(out_dir, f"{base}_combined.step"))
     if P["build"].get("dxf_from_top_face", True):
         try:
-            exporters.exportDXF(stator.faces(">Z").val(), os.path.join(out_dir, f"{base}_stator.dxf"))
-            exporters.exportDXF(rotor.faces(">Z").val(), os.path.join(out_dir, f"{base}_rotor.dxf"))
+            dxf_source = stator_steel if stator_steel is not None else stator
+            exporters.exportDXF(dxf_source.faces(">Z").val(), os.path.join(out_dir, f"{base}_stator.dxf"))
+            rotor_dxf_source = rotor_steel if rotor_steel is not None else rotor
+            exporters.exportDXF(rotor_dxf_source.faces(">Z").val(), os.path.join(out_dir, f"{base}_rotor.dxf"))
         except Exception:
             print("WARN: DXF export failed.")
     if P["build"].get("png_enabled", False):
@@ -99,13 +149,14 @@ def export_all(stator, rotor, magnets=None):
         if magnets is not None:
             show(magnets, screenshot=os.path.join(out_dir, f"{base}_magnets.png"), interact=False,
                  edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
-        show(stator.union(rotor), screenshot=os.path.join(out_dir, f"{base}_combined.png"), interact=False,
+        show(combined, screenshot=os.path.join(out_dir, f"{base}_combined.png"), interact=False,
              edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
 
 
 if __name__ == "__main__":
-    stator = make_stator(P)
-    rotor, magnets = make_rotor_and_magnets(P)
-    export_all(stator, rotor, magnets)
+    stator, stator_steel, stator_varnish = make_stator(P)
+    rotor, rotor_steel, rotor_varnish, magnets = make_rotor_and_magnets(P)
+    export_all(stator, rotor, magnets, stator_varnish, stator_steel, rotor_varnish, rotor_steel)
     if P["build"].get("show_interactive", True):
-        show(stator.union(rotor), width=1280, height=720, interact=True)
+        combined = _build_combined_assembly(stator, rotor, magnets)
+        show(combined, width=1280, height=720, interact=True)

@@ -6,4 +6,4 @@ reference/*/*
 *.rpt
 .venv
 *.step
-*.png
+#*.png
