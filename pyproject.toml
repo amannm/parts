@@ -13,6 +13,7 @@ authors = [
   { name = "SimStack Contributors" }
 ]
 dependencies = [
+  "cadquery",
   "pydantic>=2.6",
   "pyyaml>=6.0",
 ]
