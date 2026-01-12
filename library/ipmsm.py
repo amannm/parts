@@ -79,23 +79,33 @@ P = {
     },
     "magnets": {
         "alpha_v_deg": 22.0,
-        "use_center_post_width": False,
+        "use_center_post_width": False,  # use explicit R_m_c (keeps V pockets at expected radius)
         "b_post": 6.0,
         "L_m": 30.0,
         "t_m": 6.0,
         "clearance": 0.2,
         "R_m_c": 52.0,
+        "auto_clamp_R_m_c": True,  # clamp R_m_c to satisfy outer bridge constraint
         "rotor_bridge_od": 1.5,
         "magnet_chamfer": 0.0,
     },
     "barriers": {
         # Tip: set arc_barrier_enabled/v_cavity_enabled to False first to verify magnet pocket placement.
-        "arc_barrier_enabled": True,
+        # Magnet-aligned barriers (recommended for V-type look)
+        "aligned_barrier_enabled": False,  # start with a clean V-pocket; enable after verifying geometry
+        "aligned_barrier_length": 18.0,      # mm, cavity length behind each magnet leg
+        "aligned_barrier_width_extra": 2.0,  # mm, adds to pocket thickness tp
+        "aligned_barrier_gap": 1.5,          # mm, gap between pocket inner tip and barrier cavity
+        "aligned_barrier_hub_margin": 3.0,  # mm: keep aligned barriers away from shaft/hub
+        "hub_keepout_margin": 4.0,          # mm: keepout margin applied to all cutters (pockets/barriers)
+        "arc_barrier_enabled": False,
         "arc_r_in": 28.0,
         "arc_r_out": 40.0,
         "arc_span_deg": 30.0,
         "arc_segments": 32,
-        "v_cavity_enabled": True,
+        "arc_clearance_to_pocket": 1.5,  # mm: barrier stays this far inside the V-pocket inner tips
+        "arc_min_thickness": 2.0,        # mm: minimum barrier radial thickness
+        "v_cavity_enabled": False,
         "v_cavity_depth": 4.0,
         "v_cavity_inset": 1.0,
     },
