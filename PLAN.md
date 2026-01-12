@@ -4,7 +4,7 @@
 - Deliver a single Python runtime that runs CAD → mesh → solve → post, preserving semantic tags end-to-end.
 - Provide config-driven orchestration with clean module contracts and reproducible outputs.
 - Prefer in-memory Gmsh → DOLFINx handoff and VTX outputs; keep `.msh` import as debug/interop.
-- Build an extensible physics registry (start with Poisson, add elasticity/heat).
+- Build an extensible physics registry (start with Poisson, add heat and elasticity).
 - Track provenance, caching, and QA gates as first-class pipeline features.
 
 Non-goals for v1:
@@ -128,18 +128,19 @@ Exit criteria:
 
 ---
 
-### Phase 4 — Second physics module (M3)
+### Phase 4 — Heat + Elasticity modules (M3)
 Work items:
-- Implement `fem/physics/heat.py` or `fem/physics/elasticity.py`.
+- Implement `fem/physics/heat.py` (steady + optional transient).
+- Implement `fem/physics/elasticity.py` (linear elasticity).
 - Add Neumann/Robin BC support via `fem/bcs.py` and physics-specific natural terms.
 - Add solver presets for nonlinear/transient runs in `core/registry.py`.
 
 Deliverables:
-- `physics/heat.py` (or `elasticity.py`) + example config.
+- `physics/heat.py` and `physics/elasticity.py` + example configs.
 - Solver report includes convergence reason, residual norms, timings.
 
 Exit criteria:
-- At least two physics modules run end-to-end with BCs based on facet tag names.
+- Heat and elasticity both run end-to-end with BCs based on facet tag names.
 
 ---
 
@@ -177,7 +178,7 @@ Exit criteria:
 ### Phase 7 — Tests and verification
 Work items:
 - Unit tests for TagSpec evaluation and tag transfer.
-- Manufactured solution tests for Poisson/heat.
+- Manufactured solution tests for Poisson/heat/elasticity.
 - Regression test for mesh QA thresholds.
 
 Deliverables:
@@ -196,7 +197,7 @@ Exit criteria:
 
 ## 6) Acceptance checklist
 - End-to-end run with stable tag names across CAD changes.
-- At least one physics module produces VTX output and solver report.
+- Heat and elasticity produce VTX output and solver reports.
 - Multi-material case works with DG0 coefficients.
 - Provenance includes config snapshot + versions + tag_map.
 - QA gates fail fast on missing tags or low-quality meshes.

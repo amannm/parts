@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "simstack"
+version = "0.1.0"
+description = "Parametric CAD to multiphysics FEM pipeline"
+readme = "SPEC.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "SimStack Contributors" }
+]
+dependencies = [
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+]
+
+[project.scripts]
+simstack = "simstack.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simstack"]
+
+[tool.uv]
+dev-dependencies = [
+  "pytest>=7.4",
+  "ruff>=0.4",
+  "mypy>=1.8",
+]
