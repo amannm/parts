@@ -98,6 +98,8 @@ class OutputsConfig(BaseModel):
     write_mesh: bool = True
     write_reports: bool = True
     reuse: bool = True
+    write_tag_fields: bool = True
+    write_boundary_mesh: bool = True
 
 
 class SimStackConfig(BaseModel):

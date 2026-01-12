@@ -51,6 +51,7 @@ def build_provenance(
     *,
     tag_map: Optional[Dict[str, Dict[str, int]]] = None,
     mesh_stats: Optional[Dict[str, Any]] = None,
+    tag_legend_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat()
     packages = [
@@ -76,4 +77,6 @@ def build_provenance(
         provenance["tag_map"] = tag_map
     if mesh_stats is not None:
         provenance["mesh_stats"] = mesh_stats
+    if tag_legend_path is not None:
+        provenance["tag_legend"] = tag_legend_path
     return provenance

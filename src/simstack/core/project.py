@@ -12,7 +12,13 @@ from simstack.cad.build import build_geometry
 from simstack.mesh.mesh_build import GmshSession, build_gmsh_model
 from simstack.mesh.import_dolfinx import model_to_mesh
 from simstack.fem.solve import solve_linear_problem
-from simstack.io.write import write_mesh_xdmf, write_outputs
+from simstack.io.write import (
+    build_tag_fields,
+    write_boundary_xdmf,
+    write_mesh_xdmf,
+    write_outputs,
+    write_tag_legend,
+)
 
 
 class Project:
@@ -55,6 +61,7 @@ class Project:
         outputs = self._collect_cached_outputs(out_root)
         if outputs is None:
             return None
+        tag_legend_path = out_root / "mesh" / "tag_legend.json"
 
         if self.config.outputs.write_mesh:
             mesh_dir = out_root / "mesh"
@@ -62,6 +69,10 @@ class Project:
             tag_map_path = mesh_dir / "tag_map.json"
             if not mesh_path.exists() or not tag_map_path.exists():
                 return None
+            if self.config.outputs.write_boundary_mesh:
+                boundary_path = mesh_dir / "boundary.xdmf"
+                if not boundary_path.exists():
+                    return None
 
         provenance_path = out_root / "reports" / "provenance.json"
         solve_report_path = out_root / "reports" / "solve_report.json"
@@ -78,6 +89,7 @@ class Project:
         return {
             "outputs": outputs,
             "provenance": str(provenance_path) if provenance_path.exists() else None,
+            "tag_legend": str(tag_legend_path) if tag_legend_path.exists() else None,
             "run_hash": self.run_hash(),
             "out_dir": str(out_root),
             "cached": True,
@@ -92,6 +104,7 @@ class Project:
         *,
         tag_map: Dict[str, Dict[str, int]] | None = None,
         mesh_stats: Dict[str, Any] | None = None,
+        tag_legend_path: str | None = None,
     ) -> str:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +113,7 @@ class Project:
             self.repo_root,
             tag_map=tag_map,
             mesh_stats=mesh_stats,
+            tag_legend_path=tag_legend_path,
         )
         path = out_dir / "provenance.json"
         path.write_text(json.dumps(provenance, indent=2, sort_keys=True))
@@ -193,18 +207,25 @@ class Project:
             tag_map,
         )
 
+        fields = dict(solve_artifact.fields)
+        if self.config.outputs.write_tag_fields:
+            fields.update(build_tag_fields(mesh, cell_tags))
+
         if self.config.outputs.write_mesh:
             write_mesh_xdmf(mesh, cell_tags, facet_tags, mesh_dir)
+            if self.config.outputs.write_boundary_mesh:
+                write_boundary_xdmf(mesh, facet_tags, mesh_dir)
         if rank == 0:
             tag_map_path = mesh_dir / "tag_map.json"
             tag_map_path.write_text(json.dumps(tag_map, indent=2, sort_keys=True))
+            tag_legend_path = write_tag_legend(tag_map, mesh_dir)
             if gmsh_result is not None and gmsh_result.mesh_stats:
                 mesh_stats_path = mesh_dir / "mesh_stats.json"
                 mesh_stats_path.write_text(json.dumps(gmsh_result.mesh_stats, indent=2, sort_keys=True))
 
         output_paths = write_outputs(
             mesh,
-            solve_artifact.fields,
+            fields,
             out_dir=out_root,
             fmt=self.config.outputs.format,
         )
@@ -215,6 +236,7 @@ class Project:
                 reports_dir,
                 tag_map=tag_map,
                 mesh_stats=gmsh_result.mesh_stats if gmsh_result is not None else None,
+                tag_legend_path=tag_legend_path if rank == 0 else None,
             )
             report_path = reports_dir / "solve_report.json"
             report_path.write_text(json.dumps(solve_artifact.solver_report, indent=2, sort_keys=True))
@@ -223,6 +245,7 @@ class Project:
         return {
             "outputs": output_paths,
             "provenance": provenance_path,
+            "tag_legend": str(mesh_dir / "tag_legend.json"),
             "run_hash": self.run_hash(),
             "out_dir": str(out_root),
         }
