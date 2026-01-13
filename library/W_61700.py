@@ -6,8 +6,8 @@ from dataclasses import dataclass
 import cadquery as cq
 
 from features.ball import BallSpec, build_ball
-from features.inner_race import InnerRaceSpec, build_inner_race
-from features.outer_race import OuterRaceSpec, build_outer_race
+from features.inner_ring import InnerRingSpec, build_inner_ring
+from features.outer_ring import OuterRingSpec, build_outer_ring
 from features.cage import CageSpec, build_cage
 
 
@@ -19,8 +19,8 @@ class W61700Spec:
     - d = 10 mm (bore diameter)
     - D = 15 mm (outside diameter)
     - B = 3 mm (width)
-    - d1 ≈ 11.21 mm (inner race shoulder diameter)
-    - D1 ≈ 13.6 mm (outer race shoulder diameter)
+    - d1 ≈ 11.21 mm (inner ring shoulder diameter)
+    - D1 ≈ 13.6 mm (outer ring shoulder diameter)
     - r = 0.15 mm (chamfer)
     """
 
@@ -56,6 +56,35 @@ def _validate_w61700(spec: W61700Spec) -> None:
         raise ValueError("Groove conformity must be at least 1.0.")
 
 
+def _groove_depths(
+    *,
+    inner_outer_radius: float,
+    outer_inner_radius: float,
+    bore_radius: float,
+    outer_radius: float,
+    pitch_radius: float,
+    groove_radius: float,
+    ball_radius: float,
+) -> tuple[float, float]:
+    # Set groove depths so the ball is tangent to both grooves at the pitch radius.
+    inner_depth = inner_outer_radius - pitch_radius + (2.0 * groove_radius) - ball_radius
+    outer_depth = pitch_radius - outer_inner_radius + (2.0 * groove_radius) - ball_radius
+
+    inner_wall = inner_outer_radius - bore_radius
+    outer_wall = outer_radius - outer_inner_radius
+
+    if inner_depth <= 0:
+        raise ValueError("Computed inner groove depth is non-positive; adjust ball size or pitch diameter.")
+    if outer_depth <= 0:
+        raise ValueError("Computed outer groove depth is non-positive; adjust ball size or pitch diameter.")
+    if inner_depth >= inner_wall:
+        raise ValueError("Computed inner groove depth exceeds inner ring wall thickness.")
+    if outer_depth >= outer_wall:
+        raise ValueError("Computed outer groove depth exceeds outer ring wall thickness.")
+
+    return inner_depth, outer_depth
+
+
 def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
     _validate_w61700(spec)
 
@@ -64,10 +93,21 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
     pitch_diameter = (spec.inner_shoulder_diameter + spec.outer_shoulder_diameter) / 2.0
     pitch_radius = pitch_diameter / 2.0
 
-    inner_groove_depth = (spec.inner_shoulder_diameter - spec.bore_diameter) / 2.0 * 0.6
-    outer_groove_depth = (spec.outer_diameter - spec.outer_shoulder_diameter) / 2.0 * 0.6
+    inner_outer_radius = spec.inner_shoulder_diameter / 2.0
+    outer_inner_radius = spec.outer_shoulder_diameter / 2.0
+    bore_radius = spec.bore_diameter / 2.0
+    outer_radius = spec.outer_diameter / 2.0
+    inner_groove_depth, outer_groove_depth = _groove_depths(
+        inner_outer_radius=inner_outer_radius,
+        outer_inner_radius=outer_inner_radius,
+        bore_radius=bore_radius,
+        outer_radius=outer_radius,
+        pitch_radius=pitch_radius,
+        groove_radius=groove_radius,
+        ball_radius=ball_radius,
+    )
 
-    inner_race_spec = InnerRaceSpec(
+    inner_ring_spec = InnerRingSpec(
         bore_diameter=spec.bore_diameter,
         outer_diameter=spec.inner_shoulder_diameter,
         width=spec.width,
@@ -75,9 +115,9 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
         groove_depth=inner_groove_depth,
         chamfer=spec.chamfer,
     )
-    inner_race = build_inner_race(inner_race_spec)
+    inner_ring = build_inner_ring(inner_ring_spec)
 
-    outer_race_spec = OuterRaceSpec(
+    outer_ring_spec = OuterRingSpec(
         inner_diameter=spec.outer_shoulder_diameter,
         outer_diameter=spec.outer_diameter,
         width=spec.width,
@@ -85,7 +125,7 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
         groove_depth=outer_groove_depth,
         chamfer=spec.chamfer,
     )
-    outer_race = build_outer_race(outer_race_spec)
+    outer_ring = build_outer_ring(outer_ring_spec)
 
     ball_spec = BallSpec(diameter=spec.ball_diameter)
     ball = build_ball(ball_spec)
@@ -102,14 +142,14 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
     assembly = cq.Assembly()
 
     assembly.add(
-        inner_race,
-        name="inner_race",
+        inner_ring,
+        name="inner_ring",
         color=cq.Color(0.7, 0.7, 0.75, 1.0),
     )
 
     assembly.add(
-        outer_race,
-        name="outer_race",
+        outer_ring,
+        name="outer_ring",
         color=cq.Color(0.7, 0.7, 0.75, 1.0),
     )
 
@@ -123,12 +163,12 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
             name=f"ball_{i}",
             color=cq.Color(0.85, 0.85, 0.88, 1.0),
         )
-
-    assembly.add(
-        cage,
-        name="cage",
-        color=cq.Color(0.85, 0.75, 0.55, 0.8),
-    )
+    #
+    # assembly.add(
+    #     cage,
+    #     name="cage",
+    #     color=cq.Color(0.85, 0.75, 0.55, 0.8),
+    # )
 
     return assembly
 
@@ -136,14 +176,26 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
 def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
     _validate_w61700(spec)
 
-    ball_radius = spec.ball_diameter / 2.0
-    groove_radius = ball_radius * spec.groove_conformity
+    groove_radius = (spec.ball_diameter / 2.0) * spec.groove_conformity
     pitch_diameter = (spec.inner_shoulder_diameter + spec.outer_shoulder_diameter) / 2.0
 
-    inner_groove_depth = (spec.inner_shoulder_diameter - spec.bore_diameter) / 2.0 * 0.6
-    outer_groove_depth = (spec.outer_diameter - spec.outer_shoulder_diameter) / 2.0 * 0.6
+    inner_outer_radius = spec.inner_shoulder_diameter / 2.0
+    outer_inner_radius = spec.outer_shoulder_diameter / 2.0
+    bore_radius = spec.bore_diameter / 2.0
+    outer_radius = spec.outer_diameter / 2.0
+    pitch_radius = pitch_diameter / 2.0
+    ball_radius = spec.ball_diameter / 2.0
+    inner_groove_depth, outer_groove_depth = _groove_depths(
+        inner_outer_radius=inner_outer_radius,
+        outer_inner_radius=outer_inner_radius,
+        bore_radius=bore_radius,
+        outer_radius=outer_radius,
+        pitch_radius=pitch_radius,
+        groove_radius=groove_radius,
+        ball_radius=ball_radius,
+    )
 
-    inner_race_spec = InnerRaceSpec(
+    inner_ring_spec = InnerRingSpec(
         bore_diameter=spec.bore_diameter,
         outer_diameter=spec.inner_shoulder_diameter,
         width=spec.width,
@@ -152,7 +204,7 @@ def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
         chamfer=spec.chamfer,
     )
 
-    outer_race_spec = OuterRaceSpec(
+    outer_ring_spec = OuterRingSpec(
         inner_diameter=spec.outer_shoulder_diameter,
         outer_diameter=spec.outer_diameter,
         width=spec.width,
@@ -172,13 +224,13 @@ def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
     )
 
     return {
-        "inner_race": build_inner_race(inner_race_spec),
-        "outer_race": build_outer_race(outer_race_spec),
+        "inner_ring": build_inner_ring(inner_ring_spec),
+        "outer_ring": build_outer_ring(outer_ring_spec),
         "ball": build_ball(ball_spec),
         "cage": build_cage(cage_spec),
         "specs": {
-            "inner_race": inner_race_spec,
-            "outer_race": outer_race_spec,
+            "inner_ring": inner_ring_spec,
+            "outer_ring": outer_ring_spec,
             "ball": ball_spec,
             "cage": cage_spec,
             "bearing": spec,
