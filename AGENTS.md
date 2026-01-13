@@ -1,5 +1,6 @@
 # Project objectives
 - A compact CAD system with multiphysics simulation support.
+- A parametric part library for common parts.
 
 # Non-goals
 - Do not worry about backwards compatibility with anything.
