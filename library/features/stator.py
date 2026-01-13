@@ -72,14 +72,12 @@ def make_stator(P):
     if varnish_thickness > 0:
         for candidate in (stator, stator_core):
             try:
-                # Use intersection joins to avoid auto-rounded corners on outward shells.
                 varnish = candidate.shell(varnish_thickness, kind="intersection")
                 break
             except Exception:
                 varnish = None
         if varnish is None:
             print("WARN: Stator varnish shell failed (try smaller varnish_thickness).")
-
     stack_count = int(s.get("stack_count", 1))
     if stack_count < 1:
         stack_count = 1
@@ -88,7 +86,6 @@ def make_stator(P):
         steel_thickness = stator.val().BoundingBox().zlen
         varnish_pitch = 2.0 * varnish_thickness
         stack_pitch = steel_thickness + varnish_pitch
-
     assembly = cq.Assembly()
     steel_color = _color_from(s.get("steel_color"), (0.25, 0.25, 0.25, 1.0))
     varnish_color = _color_from(s.get("varnish_color"), (0.98, 0.72, 0.2, 0.25))
@@ -106,7 +103,6 @@ def make_stator(P):
             name=f"stator_steel_{idx}",
             color=steel_color,
         )
-
     winding_cfg = P.get("winding", None)
     if winding_cfg is not None and winding_cfg.get("enabled", True):
         from features.winding import add_windings_to_assembly
