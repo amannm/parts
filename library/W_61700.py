@@ -9,6 +9,7 @@ from features.ball import BallSpec, build_ball
 from features.inner_ring import InnerRingSpec, build_inner_ring
 from features.outer_ring import OuterRingSpec, build_outer_ring
 from features.cage import CageSpec, build_cage
+from features.seal import SealSpec, build_seal
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,10 @@ class W61700Spec:
     ball_diameter: float = 1.5
     num_balls: int = 11
     groove_conformity: float = 1.04
+    include_seals: bool = True
+    seal_thickness: float = 0.2
+    seal_inner_clearance: float = 0.2
+    seal_outer_clearance: float = 0.2
 
 
 def _validate_w61700(spec: W61700Spec) -> None:
@@ -54,6 +59,23 @@ def _validate_w61700(spec: W61700Spec) -> None:
         raise ValueError("Number of balls must be at least 3.")
     if spec.groove_conformity < 1.0:
         raise ValueError("Groove conformity must be at least 1.0.")
+    if spec.include_seals:
+        if spec.seal_thickness <= 0:
+            raise ValueError("Seal thickness must be positive.")
+        if spec.seal_thickness >= spec.width:
+            raise ValueError("Seal thickness must be less than bearing width.")
+        if spec.seal_inner_clearance < 0:
+            raise ValueError("Seal inner clearance must be non-negative.")
+        if spec.seal_outer_clearance < 0:
+            raise ValueError("Seal outer clearance must be non-negative.")
+        seal_inner_diameter = spec.inner_shoulder_diameter + spec.seal_inner_clearance
+        seal_outer_diameter = spec.outer_diameter - spec.seal_outer_clearance
+        if seal_inner_diameter <= spec.bore_diameter:
+            raise ValueError("Seal inner diameter must be greater than bore diameter.")
+        if seal_outer_diameter >= spec.outer_diameter:
+            raise ValueError("Seal outer diameter must be less than outer diameter.")
+        if seal_inner_diameter >= seal_outer_diameter:
+            raise ValueError("Seal inner diameter must be less than seal outer diameter.")
 
 
 def _groove_depths(
@@ -83,6 +105,25 @@ def _groove_depths(
         raise ValueError("Computed outer groove depth exceeds outer ring wall thickness.")
 
     return inner_depth, outer_depth
+
+
+def _seal_specs(spec: W61700Spec) -> tuple[SealSpec, SealSpec]:
+    seal_inner_diameter = spec.inner_shoulder_diameter + spec.seal_inner_clearance
+    seal_outer_diameter = spec.outer_diameter - spec.seal_outer_clearance
+    axial_offset = (spec.width / 2.0) - (spec.seal_thickness / 2.0)
+    left = SealSpec(
+        inner_diameter=seal_inner_diameter,
+        outer_diameter=seal_outer_diameter,
+        thickness=spec.seal_thickness,
+        axial_offset=-axial_offset,
+    )
+    right = SealSpec(
+        inner_diameter=seal_inner_diameter,
+        outer_diameter=seal_outer_diameter,
+        thickness=spec.seal_thickness,
+        axial_offset=axial_offset,
+    )
+    return left, right
 
 
 def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
@@ -139,6 +180,13 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
     )
     cage = build_cage(cage_spec)
 
+    seal_left = None
+    seal_right = None
+    if spec.include_seals:
+        seal_left_spec, seal_right_spec = _seal_specs(spec)
+        seal_left = build_seal(seal_left_spec)
+        seal_right = build_seal(seal_right_spec)
+
     assembly = cq.Assembly()
 
     assembly.add(
@@ -163,12 +211,24 @@ def build_w61700(spec: W61700Spec = W61700Spec()) -> cq.Assembly:
             name=f"ball_{i}",
             color=cq.Color(0.85, 0.85, 0.88, 1.0),
         )
-    #
-    # assembly.add(
-    #     cage,
-    #     name="cage",
-    #     color=cq.Color(0.85, 0.75, 0.55, 0.8),
-    # )
+
+    assembly.add(
+        cage,
+        name="cage",
+        color=cq.Color(0.85, 0.75, 0.55, 0.8),
+    )
+
+    if spec.include_seals and seal_left and seal_right:
+        assembly.add(
+            seal_left,
+            name="seal_left",
+            color=cq.Color(0.1, 0.1, 0.1, 0.9),
+        )
+        assembly.add(
+            seal_right,
+            name="seal_right",
+            color=cq.Color(0.1, 0.1, 0.1, 0.9),
+        )
 
     return assembly
 
@@ -223,7 +283,11 @@ def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
         wall_thickness=0.2,
     )
 
-    return {
+    seal_specs = None
+    if spec.include_seals:
+        seal_specs = _seal_specs(spec)
+
+    components = {
         "inner_ring": build_inner_ring(inner_ring_spec),
         "outer_ring": build_outer_ring(outer_ring_spec),
         "ball": build_ball(ball_spec),
@@ -236,6 +300,13 @@ def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
             "bearing": spec,
         },
     }
+    if spec.include_seals and seal_specs:
+        seal_left_spec, seal_right_spec = seal_specs
+        components["seal_left"] = build_seal(seal_left_spec)
+        components["seal_right"] = build_seal(seal_right_spec)
+        components["specs"]["seal_left"] = seal_left_spec
+        components["specs"]["seal_right"] = seal_right_spec
+    return components
 
 
 if __name__ == "__main__":
