@@ -4,7 +4,6 @@ import math
 from dataclasses import dataclass
 
 import cadquery as cq
-from cadquery.vis import show
 
 from features.ball import BallSpec, build_ball
 from features.inner_race import InnerRaceSpec, build_inner_race
@@ -32,7 +31,7 @@ class W61700Spec:
     outer_shoulder_diameter: float = 13.6
     chamfer: float = 0.15
     ball_diameter: float = 1.5
-    num_balls: int = 7
+    num_balls: int = 11
     groove_conformity: float = 1.04
 
 
@@ -186,7 +185,10 @@ def build_w61700_components(spec: W61700Spec = W61700Spec()) -> dict:
         },
     }
 
+
 if __name__ == "__main__":
+    from cadquery.vis import show
+
     params = W61700Spec()
-    result = build_w61700_components(params)
+    result = build_w61700(params)
     show(result, width=1280, height=720, zoom=0, roll=0, elevation=0, interact=True)
