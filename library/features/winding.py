@@ -90,23 +90,9 @@ def _spec_from_params(P) -> WindingSpec:
 
 
 def _slot_profile(P) -> cq.Workplane:
-    s = P["stator"]
-    R_si = s["D_si"] / 2
-    w0 = s["b_so"] / 2
-    w1 = s["b_neck"] / 2
-    w2 = s["b_s"] / 2
-    x0 = R_si + float(s.get("slot_opening_inset", 0.0))
-    x1 = R_si + s["h_tt"]
-    x2 = R_si + s["h_s"]
-    pts = [
-        (x0, +w0),
-        (x0, -w0),
-        (x1, -w1),
-        (x2, -w2),
-        (x2, +w2),
-        (x1, +w1),
-    ]
-    return cq.Workplane("XY").polyline(pts).close()
+    from features.stator import build_slot_profile
+
+    return build_slot_profile(P)
 
 
 def _stack_length(P) -> float:
