@@ -19,6 +19,43 @@ class WindingSpec:
     copper_color: str | tuple[float, float, float, float] | None = None
     varnish_color: str | tuple[float, float, float, float] | None = None
 
+    @classmethod
+    def from_dict(cls, cfg: dict | None) -> "WindingSpec":
+        cfg = cfg or {}
+        kind = str(cfg.get("kind", cfg.get("type", "hairpin"))).lower()
+        varnish_thickness = float(cfg.get("varnish_thickness", 0.0))
+        slot_clearance = float(
+            cfg.get("slot_clearance", cfg.get("clearance", cfg.get("liner_thickness", 0.0)))
+        )
+        if slot_clearance <= 0 and varnish_thickness > 0:
+            slot_clearance = varnish_thickness
+        if kind == "wire":
+            radial_count = int(cfg.get("wire_radial_count", cfg.get("radial_count", cfg.get("rows", 2))))
+            tangential_count = int(
+                cfg.get("wire_tangential_count", cfg.get("tangential_count", cfg.get("cols", 2)))
+            )
+            conductor_gap = float(cfg.get("wire_gap", cfg.get("conductor_gap", cfg.get("gap", 0.2))))
+            wire_diameter = float(cfg.get("wire_diameter", 0.0))
+        else:
+            radial_count = int(cfg.get("hairpin_radial_count", cfg.get("radial_count", cfg.get("rows", 2))))
+            tangential_count = int(
+                cfg.get("hairpin_tangential_count", cfg.get("tangential_count", cfg.get("cols", 2)))
+            )
+            conductor_gap = float(cfg.get("hairpin_gap", cfg.get("conductor_gap", cfg.get("gap", 0.2))))
+            wire_diameter = 0.0
+        return cls(
+            kind=kind,
+            slot_clearance=slot_clearance,
+            varnish_thickness=varnish_thickness,
+            wire_fillet=float(cfg.get("wire_fillet", 0.0)),
+            radial_count=radial_count,
+            tangential_count=tangential_count,
+            conductor_gap=conductor_gap,
+            wire_diameter=wire_diameter,
+            copper_color=cfg.get("copper_color"),
+            varnish_color=cfg.get("varnish_color"),
+        )
+
 
 def _color_from(value, fallback):
     if value is None:
@@ -52,65 +89,29 @@ def _validate_winding(spec: WindingSpec) -> None:
         raise ValueError("Winding wire_diameter must be non-negative.")
 
 
-def _spec_from_params(P) -> WindingSpec:
-    w = P.get("winding", {}) or {}
-    kind = str(w.get("kind", w.get("type", "hairpin"))).lower()
-    varnish_thickness = float(w.get("varnish_thickness", 0.0))
-    slot_clearance = float(
-        w.get("slot_clearance", w.get("clearance", w.get("liner_thickness", 0.0)))
-    )
-    if slot_clearance <= 0 and varnish_thickness > 0:
-        slot_clearance = varnish_thickness
-    if kind == "wire":
-        radial_count = int(w.get("wire_radial_count", w.get("radial_count", w.get("rows", 2))))
-        tangential_count = int(
-            w.get("wire_tangential_count", w.get("tangential_count", w.get("cols", 2)))
-        )
-        conductor_gap = float(w.get("wire_gap", w.get("conductor_gap", w.get("gap", 0.2))))
-        wire_diameter = float(w.get("wire_diameter", 0.0))
-    else:
-        radial_count = int(w.get("hairpin_radial_count", w.get("radial_count", w.get("rows", 2))))
-        tangential_count = int(
-            w.get("hairpin_tangential_count", w.get("tangential_count", w.get("cols", 2)))
-        )
-        conductor_gap = float(w.get("hairpin_gap", w.get("conductor_gap", w.get("gap", 0.2))))
-        wire_diameter = 0.0
-    return WindingSpec(
-        kind=kind,
-        slot_clearance=slot_clearance,
-        varnish_thickness=varnish_thickness,
-        wire_fillet=float(w.get("wire_fillet", 0.0)),
-        radial_count=radial_count,
-        tangential_count=tangential_count,
-        conductor_gap=conductor_gap,
-        wire_diameter=wire_diameter,
-        copper_color=w.get("copper_color"),
-        varnish_color=w.get("varnish_color"),
-    )
-
-
-def _slot_profile(P) -> cq.Workplane:
+def _slot_profile(stator_spec) -> cq.Workplane:
     from features.stator import build_slot_profile
 
-    return build_slot_profile(P)
+    return build_slot_profile(stator_spec)
 
 
-def _stack_length(P) -> float:
-    s = P["stator"]
-    t = P["build"]["lam_thickness"]
-    stack_count = int(s.get("stack_count", 1))
+def _stack_length(stator_spec) -> float:
+    stack_count = int(stator_spec.stack_count)
+    t = stator_spec.lam_thickness
+    stack_pitch = float(stator_spec.stack_pitch)
+    varnish_thickness = float(stator_spec.varnish_thickness)
     if stack_count < 1:
         stack_count = 1
-    stack_pitch = float(s.get("stack_pitch", 0.0))
     if stack_pitch <= 0:
-        varnish_thickness = float(s.get("varnish_thickness", 0.0))
         varnish_pitch = 2.0 * varnish_thickness if varnish_thickness > 0 else 0.0
         stack_pitch = t + varnish_pitch
     return t + (stack_count - 1) * stack_pitch
 
 
-def _slot_profile_with_clearance(P, spec: WindingSpec) -> cq.Workplane:
-    profile = _slot_profile(P)
+def _slot_profile_with_clearance(stator_spec, spec: WindingSpec | None = None) -> cq.Workplane:
+    if spec is None:
+        raise ValueError("Winding spec is required to build clearance profile.")
+    profile = _slot_profile(stator_spec)
     if spec.slot_clearance > 0:
         offset_kind = "intersection" if spec.kind == "hairpin" else "arc"
         try:
@@ -142,9 +143,11 @@ def _conductor_grid(profile: cq.Workplane, spec: WindingSpec) -> tuple[list[tupl
     return centers, wire_x, wire_y
 
 
-def _build_conductors(P, spec: WindingSpec) -> list[cq.Workplane]:
-    profile = _slot_profile_with_clearance(P, spec)
-    length = _stack_length(P)
+def _build_conductors(stator_spec, spec: WindingSpec | None = None) -> list[cq.Workplane]:
+    if spec is None:
+        raise ValueError("Winding spec is required to build conductors.")
+    profile = _slot_profile_with_clearance(stator_spec, spec)
+    length = _stack_length(stator_spec)
     slot_solid = profile.extrude(length, both=True)
     centers, wire_x, wire_y = _conductor_grid(profile, spec)
     conductors: list[cq.Workplane] = []
@@ -174,14 +177,16 @@ def _build_conductors(P, spec: WindingSpec) -> list[cq.Workplane]:
     return conductors
 
 
-def build_winding_solids(P, spec: WindingSpec | None = None) -> tuple[cq.Workplane | None, cq.Workplane | None]:
-    spec = _spec_from_params(P) if spec is None else spec
+def build_winding_solids(
+    stator_spec,
+    winding_spec: WindingSpec | None = None,
+) -> tuple[cq.Workplane | None, cq.Workplane | None]:
+    spec = WindingSpec() if winding_spec is None else winding_spec
     _validate_winding(spec)
-    g = P["global"]
-    Qs = int(g["slots"])
+    Qs = int(stator_spec.slots)
     if Qs <= 0:
-        raise ValueError("Global slots must be positive to build windings.")
-    slot_conductors = _build_conductors(P, spec)
+        raise ValueError("Stator slots must be positive to build windings.")
+    slot_conductors = _build_conductors(stator_spec, spec)
     if not slot_conductors:
         return None, None
     varnish_slot = None
@@ -208,12 +213,12 @@ def build_winding_solids(P, spec: WindingSpec | None = None) -> tuple[cq.Workpla
 
 def add_windings_to_assembly(
     assembly: cq.Assembly,
-    P,
-    spec: WindingSpec | None = None,
+    stator_spec,
+    winding_spec: WindingSpec | None = None,
 ) -> tuple[cq.Workplane | None, cq.Workplane | None]:
-    spec = _spec_from_params(P) if spec is None else spec
+    spec = WindingSpec() if winding_spec is None else winding_spec
     _validate_winding(spec)
-    copper, varnish = build_winding_solids(P, spec)
+    copper, varnish = build_winding_solids(stator_spec, spec)
     if copper is None and varnish is None:
         return None, None
     copper_color = _color_from(spec.copper_color, (0.72, 0.45, 0.2, 1.0))

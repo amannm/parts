@@ -1,10 +1,24 @@
 from __future__ import annotations
 
-import math
+from dataclasses import dataclass
 
 import cadquery as cq
 
-from features.magnet import magnet_pockets_and_solids_for_pole
+from features.magnet import MagnetSpec, magnet_pockets_and_solids_for_pole
+
+
+@dataclass(frozen=True)
+class RotorSpec:
+    poles: int
+    lam_thickness: float
+    outer_diameter: float
+    shaft_diameter: float
+    angle_offset_deg: float = 0.0
+    varnish_thickness: float = 0.0
+    stack_count: int = 1
+    stack_pitch: float = 0.0
+    steel_color: str | tuple[float, float, float, float] | None = None
+    varnish_color: str | tuple[float, float, float, float] | None = None
 
 
 def _color_from(value, fallback):
@@ -19,48 +33,68 @@ def _color_from(value, fallback):
             return cq.Color(*value)
     return cq.Color(*fallback)
 
-def make_rotor_and_magnets(P):
-    g = P["global"]
-    r = P["rotor"]
-    m = P["magnets"]
-    t = P["build"]["lam_thickness"]
-    varnish_thickness = float(r.get("varnish_thickness", 0.0))
-    stack_count = int(r.get("stack_count", 1))
+
+def _validate_positive(name: str, value: float) -> None:
+    if value <= 0:
+        raise ValueError(f"{name} must be positive.")
+
+
+def _validate_non_negative(name: str, value: float) -> None:
+    if value < 0:
+        raise ValueError(f"{name} must be non-negative.")
+
+
+def _validate_spec(spec: RotorSpec) -> None:
+    if spec.poles <= 0:
+        raise ValueError("Rotor poles must be positive.")
+    _validate_positive("Rotor lam_thickness", spec.lam_thickness)
+    _validate_positive("Rotor outer_diameter", spec.outer_diameter)
+    _validate_positive("Rotor shaft_diameter", spec.shaft_diameter)
+    if spec.shaft_diameter >= spec.outer_diameter:
+        raise ValueError("Rotor outer_diameter must exceed shaft_diameter.")
+    if spec.stack_count < 1:
+        raise ValueError("Rotor stack_count must be at least 1.")
+    _validate_non_negative("Rotor stack_pitch", spec.stack_pitch)
+    _validate_non_negative("Rotor varnish_thickness", spec.varnish_thickness)
+
+
+def make_rotor_and_magnets(
+    spec: RotorSpec,
+    magnet_spec: MagnetSpec,
+    *,
+    include_magnets: bool = False,
+):
+    if spec is None:
+        raise ValueError("Rotor spec is required to build rotor and magnets.")
+    if magnet_spec is None:
+        raise ValueError("Magnet spec is required to build rotor and magnets.")
+    _validate_spec(spec)
+    t = spec.lam_thickness
+    varnish_thickness = float(spec.varnish_thickness)
+    stack_count = int(spec.stack_count)
     if stack_count < 1:
         stack_count = 1
-    stack_pitch = float(r.get("stack_pitch", 0.0))
+    stack_pitch = float(spec.stack_pitch)
     if stack_pitch <= 0:
         varnish_pitch = 2.0 * varnish_thickness if varnish_thickness > 0 else 0.0
         stack_pitch = t + varnish_pitch
     magnet_length = t + (stack_count - 1) * stack_pitch
-    poles = int(g["poles"])
+    poles = int(spec.poles)
     pole_pitch = 360.0 / float(poles)
-    offset = float(g.get("angle_offset_deg", 0.0))
-    R_ro = float(r["D_ro"]) / 2.0
-    R_sh = float(r["D_sh"]) / 2.0
+    offset = float(spec.angle_offset_deg)
+    R_ro = float(spec.outer_diameter) / 2.0
+    R_sh = float(spec.shaft_diameter) / 2.0
     rotor = cq.Workplane("XY").circle(R_ro).circle(R_sh).extrude(t, both=True)
-    Lp = float(m["L_m"]) + 2.0 * float(m["clearance"])
-    tp = float(m["t_m"]) + 2.0 * float(m["clearance"])
-    alpha = float(m["alpha_v_deg"])
-    R_mc = float(m["R_m_c"])
-    alpha_rad = math.radians(alpha)
-    sin_a = math.sin(alpha_rad)
-    cos_a = math.cos(alpha_rad)
-    b_post = float(m.get("b_post", 0.0))
-    dt = (Lp / 2.0) * sin_a + (b_post / 2.0)
-    dt_min = (tp / 2.0) + 0.2
     pocket_cutters = None
     magnet_solids = None
     for i in range(poles):
         pole_center = offset + i * pole_pitch
         pole_pockets, pole_magnets = magnet_pockets_and_solids_for_pole(
-            P,
+            magnet_spec,
             pole_center,
-            R_mc,
-            Lp,
-            tp,
             t,
             magnet_length,
+            include_magnets=include_magnets,
         )
         pocket_cutters = pole_pockets if pocket_cutters is None else pocket_cutters.union(pole_pockets)
         if pole_magnets is not None:
@@ -76,8 +110,8 @@ def make_rotor_and_magnets(P):
             print("WARN: Rotor varnish shell failed (try smaller varnish_thickness).")
 
     assembly = cq.Assembly()
-    steel_color = _color_from(r.get("steel_color"), (0.25, 0.25, 0.25, 1.0))
-    varnish_color = _color_from(r.get("varnish_color"), (0.98, 0.72, 0.2, 0.25))
+    steel_color = _color_from(spec.steel_color, (0.25, 0.25, 0.25, 1.0))
+    varnish_color = _color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
     z0 = -0.5 * (stack_count - 1) * stack_pitch
     for idx in range(stack_count):
         z = z0 + idx * stack_pitch
