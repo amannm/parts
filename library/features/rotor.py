@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import cadquery as cq
 
 from features.magnet import MagnetSpec, magnet_pockets_and_solids_for_pole
+from features.utils import color_from, validate_non_negative, validate_positive
 
 
 @dataclass(frozen=True)
@@ -21,44 +22,21 @@ class RotorSpec:
     varnish_color: str | tuple[float, float, float, float] | None = None
 
 
-def _color_from(value, fallback):
-    if value is None:
-        value = fallback
-    if isinstance(value, str):
-        return cq.Color(value)
-    if isinstance(value, (list, tuple)):
-        if len(value) == 3:
-            return cq.Color(*value)
-        if len(value) == 4:
-            return cq.Color(*value)
-    return cq.Color(*fallback)
-
-
-def _validate_positive(name: str, value: float) -> None:
-    if value <= 0:
-        raise ValueError(f"{name} must be positive.")
-
-
-def _validate_non_negative(name: str, value: float) -> None:
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative.")
-
-
 def _validate_spec(spec: RotorSpec) -> None:
     if spec.poles <= 0:
         raise ValueError("Rotor poles must be positive.")
-    _validate_positive("Rotor lam_thickness", spec.lam_thickness)
-    _validate_positive("Rotor outer_diameter", spec.outer_diameter)
-    _validate_positive("Rotor shaft_diameter", spec.shaft_diameter)
+    validate_positive("Rotor lam_thickness", spec.lam_thickness)
+    validate_positive("Rotor outer_diameter", spec.outer_diameter)
+    validate_positive("Rotor shaft_diameter", spec.shaft_diameter)
     if spec.shaft_diameter >= spec.outer_diameter:
         raise ValueError("Rotor outer_diameter must exceed shaft_diameter.")
     if spec.stack_count < 1:
         raise ValueError("Rotor stack_count must be at least 1.")
-    _validate_non_negative("Rotor stack_pitch", spec.stack_pitch)
-    _validate_non_negative("Rotor varnish_thickness", spec.varnish_thickness)
+    validate_non_negative("Rotor stack_pitch", spec.stack_pitch)
+    validate_non_negative("Rotor varnish_thickness", spec.varnish_thickness)
 
 
-def make_rotor_and_magnets(
+def build_rotor_and_magnets(
     spec: RotorSpec,
     magnet_spec: MagnetSpec,
     *,
@@ -110,8 +88,8 @@ def make_rotor_and_magnets(
             print("WARN: Rotor varnish shell failed (try smaller varnish_thickness).")
 
     assembly = cq.Assembly()
-    steel_color = _color_from(spec.steel_color, (0.25, 0.25, 0.25, 1.0))
-    varnish_color = _color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
+    steel_color = color_from(spec.steel_color, (0.25, 0.25, 0.25, 1.0))
+    varnish_color = color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
     z0 = -0.5 * (stack_count - 1) * stack_pitch
     for idx in range(stack_count):
         z = z0 + idx * stack_pitch

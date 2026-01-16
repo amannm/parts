@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
-import math
 from typing import Literal
 
 import cadquery as cq
+
+from features.utils import validate_non_negative, validate_positive
 
 
 WireShape = Literal["round", "square", "rectangular", "custom"]
@@ -236,40 +238,30 @@ class FlatSpiralGeometry:
     strip_length: float | None
 
 
-def _validate_positive(name: str, value: float) -> None:
-    if value <= 0:
-        raise ValueError(f"{name} must be positive.")
-
-
-def _validate_non_negative(name: str, value: float) -> None:
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative.")
-
-
 def _assert_close(name: str, a: float, b: float, tol: float = 1e-6) -> None:
     if abs(a - b) > tol * max(1.0, abs(a), abs(b)):
         raise ValueError(f"{name} values are inconsistent ({a:g} vs {b:g}).")
 
 
 def _validate_wire_section(wire: WireSection) -> None:
-    _validate_non_negative("Wire corner_radius", wire.corner_radius)
+    validate_non_negative("Wire corner_radius", wire.corner_radius)
     if wire.shape == "round":
         if wire.diameter is None:
             raise ValueError("Wire diameter is required for round wire.")
-        _validate_positive("Wire diameter", wire.diameter)
+        validate_positive("Wire diameter", wire.diameter)
         return
     if wire.shape in ("square", "rectangular"):
         if wire.width is None or wire.thickness is None:
             raise ValueError("Wire width and thickness are required for non-round wire.")
-        _validate_positive("Wire width", wire.width)
-        _validate_positive("Wire thickness", wire.thickness)
+        validate_positive("Wire width", wire.width)
+        validate_positive("Wire thickness", wire.thickness)
         if wire.shape == "square":
             _assert_close("Square wire width/thickness", wire.width, wire.thickness)
         return
     if wire.shape == "custom":
         if wire.radial_thickness is None:
             raise ValueError("Wire radial_thickness is required for custom wire shapes.")
-        _validate_positive("Wire radial_thickness", wire.radial_thickness)
+        validate_positive("Wire radial_thickness", wire.radial_thickness)
         return
     raise ValueError(f"Unsupported wire shape: {wire.shape}.")
 
@@ -313,9 +305,9 @@ def _resolve_diameters(
         outer = mean + wire_thickness
     if inner is None:
         inner = mean - wire_thickness
-    _validate_positive(f"{label} mean_diameter", mean)
-    _validate_positive(f"{label} outer_diameter", outer)
-    _validate_positive(f"{label} inner_diameter", inner)
+    validate_positive(f"{label} mean_diameter", mean)
+    validate_positive(f"{label} outer_diameter", outer)
+    validate_positive(f"{label} inner_diameter", inner)
     if outer <= inner:
         raise ValueError(f"{label} outer_diameter must be larger than inner_diameter.")
     if mean is not None:
@@ -326,7 +318,7 @@ def _resolve_diameters(
 
 def _resolve_pitch(spec: HelicalBodySpec, mean_diameter: float) -> float:
     if spec.pitch is not None:
-        _validate_positive("Helical pitch", spec.pitch)
+        validate_positive("Helical pitch", spec.pitch)
         return spec.pitch
     if spec.helix_angle_deg is not None:
         angle = abs(spec.helix_angle_deg)
@@ -334,7 +326,7 @@ def _resolve_pitch(spec: HelicalBodySpec, mean_diameter: float) -> float:
             raise ValueError("Helix angle must be less than 89 degrees.")
         return math.tan(math.radians(spec.helix_angle_deg)) * math.pi * mean_diameter
     if spec.free_length is not None:
-        _validate_positive("Helical free_length", spec.free_length)
+        validate_positive("Helical free_length", spec.free_length)
         if spec.total_coils <= 0:
             raise ValueError("Helical total_coils must be positive to resolve pitch.")
         return spec.free_length / spec.total_coils
@@ -343,13 +335,13 @@ def _resolve_pitch(spec: HelicalBodySpec, mean_diameter: float) -> float:
 
 def _resolve_coil_counts(spec: HelicalBodySpec) -> tuple[float, float]:
     total = spec.total_coils
-    _validate_positive("Helical total_coils", total)
+    validate_positive("Helical total_coils", total)
     active = spec.active_coils
     end = spec.end_coils
     if active is not None:
-        _validate_positive("Helical active_coils", active)
+        validate_positive("Helical active_coils", active)
     if end is not None:
-        _validate_non_negative("Helical end_coils", end)
+        validate_non_negative("Helical end_coils", end)
     if active is not None and end is not None:
         _assert_close("Helical coil count", active + end, total)
         return active, end
@@ -392,7 +384,7 @@ def resolve_helical_geometry(spec: HelicalBodySpec) -> HelicalSpringGeometry:
     elif spec.pitch is not None:
         expected_length = spec.pitch * spec.total_coils
         _assert_close("Helical free_length", free_length, expected_length)
-    _validate_positive("Helical free_length", free_length)
+    validate_positive("Helical free_length", free_length)
     active, end = _resolve_coil_counts(spec)
     spring_index = mean / wire_thickness
     solid_height = wire_thickness * spec.total_coils
@@ -427,11 +419,11 @@ def _resolve_wave_diameters(spec: WaveSpringSpec) -> tuple[float, float, float, 
     if mean is None and inner is None and outer is None:
         raise ValueError("Wave spring must define mean, inner, or outer diameter.")
     if radial_width is not None:
-        _validate_positive("Wave spring radial_width", radial_width)
+        validate_positive("Wave spring radial_width", radial_width)
     if inner is not None:
-        _validate_positive("Wave spring inner_diameter", inner)
+        validate_positive("Wave spring inner_diameter", inner)
     if outer is not None:
-        _validate_positive("Wave spring outer_diameter", outer)
+        validate_positive("Wave spring outer_diameter", outer)
     if mean is None:
         if inner is not None and outer is not None:
             mean = (inner + outer) / 2.0
@@ -452,21 +444,21 @@ def _resolve_wave_diameters(spec: WaveSpringSpec) -> tuple[float, float, float, 
         inner = mean - radial_width / 2.0
     if outer is None:
         outer = mean + radial_width / 2.0
-    _validate_positive("Wave spring mean_diameter", mean)
+    validate_positive("Wave spring mean_diameter", mean)
     if outer <= inner:
         raise ValueError("Wave spring outer_diameter must be larger than inner_diameter.")
     return mean, inner, outer, radial_width
 
 
 def resolve_wave_geometry(spec: WaveSpringSpec) -> WaveSpringGeometry:
-    _validate_positive("Wave spring thickness", spec.thickness)
+    validate_positive("Wave spring thickness", spec.thickness)
     if spec.waves <= 0:
         raise ValueError("Wave spring waves must be positive.")
-    _validate_non_negative("Wave spring wave_height", spec.wave_height)
+    validate_non_negative("Wave spring wave_height", spec.wave_height)
     if spec.turns <= 0:
         raise ValueError("Wave spring turns must be positive.")
-    _validate_non_negative("Wave spring overlap", spec.overlap)
-    _validate_non_negative("Wave spring edge_radius", spec.edge_radius)
+    validate_non_negative("Wave spring overlap", spec.overlap)
+    validate_non_negative("Wave spring edge_radius", spec.edge_radius)
     mean, inner, outer, radial_width = _resolve_wave_diameters(spec)
     return WaveSpringGeometry(
         mean_diameter=mean,
@@ -483,7 +475,7 @@ def resolve_wave_geometry(spec: WaveSpringSpec) -> WaveSpringGeometry:
 def resolve_variable_diameter_geometry(spec: VariableDiameterHelixSpec) -> VariableDiameterGeometry:
     _validate_wire_section(spec.wire)
     wire_thickness = _wire_radial_thickness(spec.wire)
-    _validate_positive("Variable diameter total_coils", spec.total_coils)
+    validate_positive("Variable diameter total_coils", spec.total_coils)
     mean_small, outer_small, inner_small = _resolve_diameters(
         spec.mean_diameter_small,
         spec.outer_diameter_small,
@@ -500,22 +492,22 @@ def resolve_variable_diameter_geometry(spec: VariableDiameterHelixSpec) -> Varia
     )
     free_length = spec.free_length
     if free_length is not None:
-        _validate_positive("Variable diameter free_length", free_length)
+        validate_positive("Variable diameter free_length", free_length)
     pitch = spec.pitch
     if pitch is not None:
-        _validate_positive("Variable diameter pitch", pitch)
+        validate_positive("Variable diameter pitch", pitch)
     elif free_length is not None:
         pitch = free_length / spec.total_coils
     if pitch is not None and free_length is not None:
         expected_length = pitch * spec.total_coils
         _assert_close("Variable diameter free_length", free_length, expected_length)
     if spec.pitch_small is not None:
-        _validate_positive("Variable diameter pitch_small", spec.pitch_small)
+        validate_positive("Variable diameter pitch_small", spec.pitch_small)
     if spec.pitch_large is not None:
-        _validate_positive("Variable diameter pitch_large", spec.pitch_large)
+        validate_positive("Variable diameter pitch_large", spec.pitch_large)
     cone_angle = spec.cone_angle_deg
     if cone_angle is not None:
-        _validate_positive("Variable diameter cone_angle_deg", cone_angle)
+        validate_positive("Variable diameter cone_angle_deg", cone_angle)
     if cone_angle is None and free_length is not None:
         delta_r = (mean_large - mean_small) / 2.0
         if abs(delta_r) > 0:
@@ -541,21 +533,21 @@ def resolve_variable_diameter_geometry(spec: VariableDiameterHelixSpec) -> Varia
 
 
 def resolve_flat_spiral_geometry(spec: FlatSpiralSpec) -> FlatSpiralGeometry:
-    _validate_positive("Flat spiral strip_thickness", spec.strip_thickness)
-    _validate_positive("Flat spiral strip_width", spec.strip_width)
-    _validate_non_negative("Flat spiral clearance", spec.clearance)
+    validate_positive("Flat spiral strip_thickness", spec.strip_thickness)
+    validate_positive("Flat spiral strip_width", spec.strip_width)
+    validate_non_negative("Flat spiral clearance", spec.clearance)
     inner = spec.inner_diameter
     outer = spec.outer_diameter
     turns = spec.turns
     pitch = spec.spiral_pitch
     if inner is not None:
-        _validate_positive("Flat spiral inner_diameter", inner)
+        validate_positive("Flat spiral inner_diameter", inner)
     if outer is not None:
-        _validate_positive("Flat spiral outer_diameter", outer)
+        validate_positive("Flat spiral outer_diameter", outer)
     if turns is not None:
-        _validate_positive("Flat spiral turns", turns)
+        validate_positive("Flat spiral turns", turns)
     if pitch is not None:
-        _validate_positive("Flat spiral spiral_pitch", pitch)
+        validate_positive("Flat spiral spiral_pitch", pitch)
     if inner is None and outer is None:
         raise ValueError("Flat spiral must define inner_diameter or outer_diameter.")
     if pitch is None:
@@ -666,7 +658,7 @@ def _radius_profile(
         if mean_diameter_fn is None:
             raise ValueError("Custom diameter profile requires mean_diameter_fn.")
         radius = mean_diameter_fn(u) * 0.5
-        _validate_positive("Custom mean diameter", radius * 2.0)
+        validate_positive("Custom mean diameter", radius * 2.0)
         return radius
     raise ValueError(f"Unsupported diameter_profile: {profile}.")
 
@@ -692,7 +684,7 @@ def _pitch_profile(
         if pitch_fn is None:
             raise ValueError("Custom pitch profile requires pitch_fn.")
         value = pitch_fn(u)
-        _validate_positive("Custom pitch", value)
+        validate_positive("Custom pitch", value)
         return value
     raise ValueError(f"Unsupported pitch_profile: {profile}.")
 
@@ -714,7 +706,7 @@ def build_variable_diameter_body(
     mean_radius_end = geom.mean_diameter_large / 2.0
     mean_radius_mid = None
     if mean_diameter_mid is not None:
-        _validate_positive("mean_diameter_mid", mean_diameter_mid)
+        validate_positive("mean_diameter_mid", mean_diameter_mid)
         mean_radius_mid = mean_diameter_mid / 2.0
 
     pitch_profile = spec.pitch_profile
@@ -757,7 +749,7 @@ def build_variable_diameter_body(
             raise ValueError("Parabolic pitch profile requires pitch_small/pitch_large.")
         if pitch_mid is None:
             raise ValueError("Parabolic pitch profile requires pitch_mid.")
-        _validate_positive("pitch_mid", pitch_mid)
+        validate_positive("pitch_mid", pitch_mid)
     if pitch_profile == "custom":
         if pitch_fn is None:
             raise ValueError("Custom pitch profile requires pitch_fn.")
@@ -770,8 +762,8 @@ def build_variable_diameter_body(
     if pitch_profile != "custom":
         if p0 is None or p1 is None:
             raise ValueError("Variable diameter pitch profile could not be resolved.")
-        _validate_positive("Variable diameter pitch_start", p0)
-        _validate_positive("Variable diameter pitch_end", p1)
+        validate_positive("Variable diameter pitch_start", p0)
+        validate_positive("Variable diameter pitch_end", p1)
 
     total_turns = geom.total_coils
     total_angle = 2.0 * math.pi * total_turns

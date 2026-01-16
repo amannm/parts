@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Literal
 
 import cadquery as cq
 
 from features.package import union_solids
+from features.utils import validate_non_negative, validate_positive
 
 
 ThreadHand = Literal["RH", "LH"]
@@ -126,20 +127,10 @@ def _format_value(value: float) -> str:
     return f"{value:g}"
 
 
-def _validate_positive(name: str, value: float) -> None:
-    if value <= 0:
-        raise ValueError(f"{name} must be positive.")
-
-
-def _validate_non_negative(name: str, value: float) -> None:
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative.")
-
-
 def _validate_profile(profile: ThreadProfile) -> None:
     if not profile.form:
         raise ValueError("Thread profile form must be provided.")
-    _validate_positive("Thread profile included_angle_deg", profile.included_angle_deg)
+    validate_positive("Thread profile included_angle_deg", profile.included_angle_deg)
     allowed_shapes = {"flat", "sharp", "rounded"}
     if profile.crest_shape not in allowed_shapes:
         raise ValueError("Thread crest shape must be flat, sharp, or rounded.")
@@ -149,7 +140,7 @@ def _validate_profile(profile: ThreadProfile) -> None:
         if len(profile.flank_angle_deg) != 2:
             raise ValueError("Thread flank_angle_deg must contain two angles.")
         for idx, angle in enumerate(profile.flank_angle_deg, start=1):
-            _validate_positive(f"Thread flank_angle_deg[{idx}]", angle)
+            validate_positive(f"Thread flank_angle_deg[{idx}]", angle)
             if angle >= 89.0:
                 raise ValueError("Thread flank angles must be less than 89 degrees.")
     for name, value in (
@@ -163,18 +154,18 @@ def _validate_profile(profile: ThreadProfile) -> None:
         ("Thread profile root_truncation", profile.root_truncation),
     ):
         if value is not None:
-            _validate_non_negative(name, value)
+            validate_non_negative(name, value)
 
 
 def _validate_engagement(engagement: ThreadEngagement) -> None:
     if engagement.length is not None:
-        _validate_positive("Thread length", engagement.length)
+        validate_positive("Thread length", engagement.length)
     if engagement.depth is not None:
-        _validate_positive("Thread depth", engagement.depth)
+        validate_positive("Thread depth", engagement.depth)
     if engagement.min_engagement is not None:
-        _validate_positive("Thread min engagement", engagement.min_engagement)
+        validate_positive("Thread min engagement", engagement.min_engagement)
     if engagement.runout is not None:
-        _validate_non_negative("Thread runout", engagement.runout)
+        validate_non_negative("Thread runout", engagement.runout)
     if engagement.length is not None and engagement.depth is not None:
         raise ValueError("Thread engagement cannot set both length and depth.")
 
@@ -189,7 +180,7 @@ def _validate_diameters(diameters: ThreadDiameters) -> None:
         ("Minor diameter max", diameters.minor_max),
     ):
         if value is not None:
-            _validate_positive(name, value)
+            validate_positive(name, value)
     if diameters.major_min is not None and diameters.major_max is not None:
         if diameters.major_min > diameters.major_max:
             raise ValueError("Major diameter min must be <= max.")
@@ -205,18 +196,18 @@ def _validate_taper(taper: ThreadTaper) -> None:
     if taper.taper_per_length is None and taper.taper_angle_deg is None:
         raise ValueError("Thread taper must define taper_per_length or taper_angle_deg.")
     if taper.taper_per_length is not None:
-        _validate_positive("Thread taper_per_length", taper.taper_per_length)
+        validate_positive("Thread taper_per_length", taper.taper_per_length)
     if taper.taper_angle_deg is not None:
-        _validate_positive("Thread taper_angle_deg", taper.taper_angle_deg)
+        validate_positive("Thread taper_angle_deg", taper.taper_angle_deg)
     if taper.gage_plane is not None:
-        _validate_non_negative("Thread gage_plane", taper.gage_plane)
+        validate_non_negative("Thread gage_plane", taper.gage_plane)
     if taper.direction not in ("+Z", "-Z"):
         raise ValueError("Thread taper direction must be '+Z' or '-Z'.")
 
 
 def _validate_finish(finish: ThreadFinish) -> None:
     if finish.surface_finish_ra is not None:
-        _validate_non_negative("Thread surface_finish_ra", finish.surface_finish_ra)
+        validate_non_negative("Thread surface_finish_ra", finish.surface_finish_ra)
 
 
 def _resolve_pitch_from_tpi(tpi: float, units: ThreadUnits) -> float:
@@ -230,21 +221,21 @@ def resolve_pitch(spec: ThreadSpec) -> float:
     if spec.pitch is not None and spec.tpi is not None:
         raise ValueError("Thread spec cannot define both pitch and tpi.")
     if spec.pitch is not None:
-        _validate_positive("Thread pitch", spec.pitch)
+        validate_positive("Thread pitch", spec.pitch)
         return spec.pitch
     if spec.tpi is not None:
-        _validate_positive("Thread tpi", spec.tpi)
+        validate_positive("Thread tpi", spec.tpi)
         return _resolve_pitch_from_tpi(spec.tpi, spec.units)
     raise ValueError("Thread spec must define pitch or tpi.")
 
 
 def resolve_tpi(spec: ThreadSpec) -> float | None:
     if spec.tpi is not None:
-        _validate_positive("Thread tpi", spec.tpi)
+        validate_positive("Thread tpi", spec.tpi)
         return spec.tpi
     if spec.pitch is None:
         return None
-    _validate_positive("Thread pitch", spec.pitch)
+    validate_positive("Thread pitch", spec.pitch)
     if spec.units == "mm":
         return 25.4 / spec.pitch
     return 1.0 / spec.pitch
@@ -255,7 +246,7 @@ def resolve_lead(spec: ThreadSpec) -> float:
     expected = pitch * spec.starts
     if spec.lead is None:
         return expected
-    _validate_positive("Thread lead", spec.lead)
+    validate_positive("Thread lead", spec.lead)
     if abs(spec.lead - expected) > 1e-6 * max(1.0, expected):
         raise ValueError("Thread lead must equal pitch * starts.")
     return spec.lead
@@ -274,17 +265,17 @@ def _validate_thread(spec: ThreadSpec) -> None:
     if spec.nominal_diameter is None and not spec.nominal_designation:
         raise ValueError("Thread nominal size or designation must be provided.")
     if spec.nominal_diameter is not None:
-        _validate_positive("Thread nominal_diameter", spec.nominal_diameter)
+        validate_positive("Thread nominal_diameter", spec.nominal_diameter)
     if spec.pitch is not None and spec.tpi is not None:
         raise ValueError("Thread spec cannot define both pitch and tpi.")
     if spec.pitch is not None:
-        _validate_positive("Thread pitch", spec.pitch)
+        validate_positive("Thread pitch", spec.pitch)
     if spec.tpi is not None:
-        _validate_positive("Thread tpi", spec.tpi)
+        validate_positive("Thread tpi", spec.tpi)
     if spec.starts <= 0:
         raise ValueError("Thread starts must be positive.")
     if spec.lead is not None:
-        _validate_positive("Thread lead", spec.lead)
+        validate_positive("Thread lead", spec.lead)
     _validate_profile(spec.profile)
     if spec.engagement is not None:
         _validate_engagement(spec.engagement)
@@ -398,7 +389,7 @@ def thread_envelope_diameter(spec: ThreadSpec) -> float:
 
 def _resolve_thread_length(spec: ThreadSpec, length: float | None) -> float:
     if length is not None:
-        _validate_positive("Thread length", length)
+        validate_positive("Thread length", length)
         return length
     if spec.engagement is None:
         raise ValueError("Thread length must be provided or defined in engagement.")
@@ -413,11 +404,11 @@ def _resolve_thread_length(spec: ThreadSpec, length: float | None) -> float:
 
 def _taper_half_angle(taper: ThreadTaper) -> float:
     if taper.taper_angle_deg is not None:
-        _validate_positive("Thread taper_angle_deg", taper.taper_angle_deg)
+        validate_positive("Thread taper_angle_deg", taper.taper_angle_deg)
         return math.radians(taper.taper_angle_deg)
     if taper.taper_per_length is None:
         raise ValueError("Thread taper must define taper_per_length or taper_angle_deg.")
-    _validate_positive("Thread taper_per_length", taper.taper_per_length)
+    validate_positive("Thread taper_per_length", taper.taper_per_length)
     slope = taper.taper_per_length / 2.0
     return math.atan(slope)
 
@@ -431,7 +422,7 @@ def _taper_radii(
     angle = _taper_half_angle(taper)
     slope = math.tan(angle)
     gage_plane = taper.gage_plane or 0.0
-    _validate_non_negative("Thread gage_plane", gage_plane)
+    validate_non_negative("Thread gage_plane", gage_plane)
     r_start = pitch_radius - gage_plane * slope
     r_end = r_start + length * slope
     if r_start <= 0 or r_end <= 0:

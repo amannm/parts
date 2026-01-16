@@ -6,18 +6,7 @@ from typing import Literal
 
 import cadquery as cq
 
-
-def _color_from(value, fallback):
-    if value is None:
-        value = fallback
-    if isinstance(value, str):
-        return cq.Color(value)
-    if isinstance(value, (list, tuple)):
-        if len(value) == 3:
-            return cq.Color(*value)
-        if len(value) == 4:
-            return cq.Color(*value)
-    return cq.Color(*fallback)
+from features.utils import color_from, validate_non_negative, validate_positive
 
 
 @dataclass(frozen=True)
@@ -59,53 +48,43 @@ class StatorSpec:
     varnish_color: str | tuple[float, float, float, float] | None = None
 
 
-def _validate_positive(name: str, value: float) -> None:
-    if value <= 0:
-        raise ValueError(f"{name} must be positive.")
-
-
-def _validate_non_negative(name: str, value: float) -> None:
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative.")
-
-
 def _validate_spec(spec: StatorSpec) -> None:
     if spec.slots <= 0:
         raise ValueError("Stator slots must be positive.")
-    _validate_positive("Stator lam_thickness", spec.lam_thickness)
-    _validate_positive("Stator inner_diameter", spec.inner_diameter)
+    validate_positive("Stator lam_thickness", spec.lam_thickness)
+    validate_positive("Stator inner_diameter", spec.inner_diameter)
     if spec.outer_diameter is not None:
-        _validate_positive("Stator outer_diameter", spec.outer_diameter)
+        validate_positive("Stator outer_diameter", spec.outer_diameter)
     if spec.yoke_thickness is not None:
-        _validate_positive("Stator yoke_thickness", spec.yoke_thickness)
+        validate_positive("Stator yoke_thickness", spec.yoke_thickness)
     if spec.slot_style not in ("open", "semi_closed", "closed"):
         raise ValueError(f"Unsupported slot_style: {spec.slot_style}")
-    _validate_non_negative("Slot opening inset", spec.slot_opening_inset)
-    _validate_non_negative("Slot opening depth", spec.slot_opening_depth)
-    _validate_non_negative("Slot neck height", spec.slot_neck_height)
-    _validate_non_negative("Slot body height", spec.slot_body_height)
+    validate_non_negative("Slot opening inset", spec.slot_opening_inset)
+    validate_non_negative("Slot opening depth", spec.slot_opening_depth)
+    validate_non_negative("Slot neck height", spec.slot_neck_height)
+    validate_non_negative("Slot body height", spec.slot_body_height)
     if spec.slot_depth is not None:
-        _validate_non_negative("Slot depth", spec.slot_depth)
+        validate_non_negative("Slot depth", spec.slot_depth)
     if spec.slot_opening_width is not None:
-        _validate_non_negative("Slot opening width", spec.slot_opening_width)
+        validate_non_negative("Slot opening width", spec.slot_opening_width)
     if spec.slot_opening_angle_deg is not None:
-        _validate_non_negative("Slot opening angle", spec.slot_opening_angle_deg)
-    _validate_non_negative("Slot pitch margin", spec.slot_pitch_margin)
-    _validate_non_negative("Slot bottom arc radius", spec.slot_bottom_arc_radius)
-    _validate_non_negative("Slot corner radius", spec.slot_corner_radius)
-    _validate_non_negative("Slot mouth radius", spec.slot_mouth_radius)
-    _validate_non_negative("Tooth root radius", spec.tooth_root_radius)
-    _validate_non_negative("Slot bottom radius", spec.slot_bottom_radius)
+        validate_non_negative("Slot opening angle", spec.slot_opening_angle_deg)
+    validate_non_negative("Slot pitch margin", spec.slot_pitch_margin)
+    validate_non_negative("Slot bottom arc radius", spec.slot_bottom_arc_radius)
+    validate_non_negative("Slot corner radius", spec.slot_corner_radius)
+    validate_non_negative("Slot mouth radius", spec.slot_mouth_radius)
+    validate_non_negative("Tooth root radius", spec.tooth_root_radius)
+    validate_non_negative("Slot bottom radius", spec.slot_bottom_radius)
     if spec.segment_count < 1:
         raise ValueError("segment_count must be at least 1.")
-    _validate_non_negative("Segment gap", spec.segment_gap)
-    _validate_non_negative("Segment gap deg", spec.segment_gap_deg)
-    _validate_non_negative("Segment radial margin", spec.segment_radial_margin)
+    validate_non_negative("Segment gap", spec.segment_gap)
+    validate_non_negative("Segment gap deg", spec.segment_gap_deg)
+    validate_non_negative("Segment radial margin", spec.segment_radial_margin)
     if spec.stack_count < 1:
         raise ValueError("stack_count must be at least 1.")
-    _validate_non_negative("Stack pitch", spec.stack_pitch)
-    _validate_non_negative("Varnish thickness", spec.varnish_thickness)
-    _validate_non_negative("Stator fillet radius", spec.fillet_r)
+    validate_non_negative("Stack pitch", spec.stack_pitch)
+    validate_non_negative("Varnish thickness", spec.varnish_thickness)
+    validate_non_negative("Stator fillet radius", spec.fillet_r)
 
 
 def _stator_geometry(spec: StatorSpec) -> dict:
@@ -127,7 +106,7 @@ def _stator_geometry(spec: StatorSpec) -> dict:
         if spec.slot_depth is None:
             raise ValueError("Slot body height (slot_body_height) or slot_depth is required.")
         h_sb = spec.slot_depth - h_so - h_sn
-    _validate_positive("Slot body height", h_sb)
+    validate_positive("Slot body height", h_sb)
     slot_depth = h_so + h_sn + h_sb
 
     b_so = spec.slot_opening_width
@@ -139,10 +118,10 @@ def _stator_geometry(spec: StatorSpec) -> dict:
     b_sn = spec.slot_neck_width if spec.slot_neck_width is not None else b_so
     b_sb1 = spec.slot_body_top_width if spec.slot_body_top_width is not None else b_sn
     b_sb2 = spec.slot_body_bottom_width if spec.slot_body_bottom_width is not None else b_sb1
-    _validate_positive("Slot opening width", b_so)
-    _validate_positive("Slot neck width", b_sn)
-    _validate_positive("Slot body top width", b_sb1)
-    _validate_positive("Slot body bottom width", b_sb2)
+    validate_positive("Slot opening width", b_so)
+    validate_positive("Slot neck width", b_sn)
+    validate_positive("Slot body top width", b_sb1)
+    validate_positive("Slot body bottom width", b_sb2)
 
     if spec.outer_diameter is None:
         if spec.yoke_thickness is None:
@@ -300,7 +279,7 @@ def _apply_corner_fillet(
         return solid
 
 
-def make_slot_cutter(spec: StatorSpec):
+def build_slot_cutter(spec: StatorSpec):
     geom = _stator_geometry(spec)
     slot = _slot_profile_from_geom(geom).extrude(spec.lam_thickness, both=True)
     corner_default = spec.slot_corner_radius
@@ -344,7 +323,7 @@ def make_slot_cutter(spec: StatorSpec):
     return slot
 
 
-def make_stator(
+def build_stator(
     spec: StatorSpec,
     winding_spec=None,
 ):
@@ -357,7 +336,7 @@ def make_stator(
         .circle(R_si)
         .extrude(spec.lam_thickness, both=True)
     )
-    slot_cutter = make_slot_cutter(spec)
+    slot_cutter = build_slot_cutter(spec)
     for k in range(geom["Qs"]):
         ang = geom["slot_angle_offset"] + 360.0 * k / geom["Qs"]
         c = slot_cutter.rotate((0, 0, 0), (0, 0, 1), ang)
@@ -396,8 +375,8 @@ def make_stator(
         varnish_pitch = 2.0 * varnish_thickness
         stack_pitch = steel_thickness + varnish_pitch
     assembly = cq.Assembly()
-    steel_color = _color_from(spec.steel_color, (0.25, 0.25, 0.25, 1.0))
-    varnish_color = _color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
+    steel_color = color_from(spec.steel_color, (0.25, 0.25, 0.25, 1.0))
+    varnish_color = color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
     z0 = -0.5 * (stack_count - 1) * stack_pitch
     for idx in range(stack_count):
         z = z0 + idx * stack_pitch

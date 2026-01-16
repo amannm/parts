@@ -1,216 +1,191 @@
+from __future__ import annotations
+
 import os
-import sys
-import types
-from pathlib import Path
+from dataclasses import dataclass
+
 import cadquery as cq
 from cadquery import exporters
 from cadquery.occ_impl.exporters import assembly as asm_export
 from cadquery.vis import show
+
 from features.magnet import MagnetSpec
-from features.stator import StatorSpec, make_stator
+from features.rotor import RotorSpec, build_rotor_and_magnets
+from features.stator import StatorSpec, build_stator
 from features.winding import WindingSpec
-from features.rotor import RotorSpec, make_rotor_and_magnets
-
-P = {
-    "global": {
-        "poles": 8,
-        "slots": 48,
-        "airgap": 1.0,
-        "angle_offset_deg": 0.0,
-        "units": "mm",
-    },
-    "build": {
-        "lam_thickness": 1.0,
-        "include_magnets": False,
-        "export_enabled": True,
-        "export_dir": "./out_ipmsm",
-        "export_basename": "ipmsm_singleV",
-        "dxf_from_top_face": True,
-        "png_enabled": True,
-        "png_width": 1400,
-        "png_height": 1000,
-        "png_edges": True,
-        "png_gradient": False,
-        "png_trihedron": False,
-        "png_bgcolor": (1.0, 1.0, 1.0),
-        "show_interactive": True,
-    },
-    "stator": {
-        "D_so": 240.0,
-        "D_si": 140.0,
-        "b_so": 3.0,
-        "b_sn": 5.0,
-        "b_sb1": 5.0,
-        "b_sb2": 9.0,
-        "h_so": 2.0,
-        "h_sn": 0.0,
-        "h_sb": 23.0,
-        "slot_opening_inset": 0.1,
-        "slot_style": "semi_closed",
-        "fillet_enabled": True,
-        "fillet_r": 0.4,
-        "varnish_thickness": 0.0,
-        "stack_count": 1,
-        "steel_color": (0.2, 0.2, 0.2, 1.0),
-        "varnish_color": (0.98, 0.72, 0.2, 0.25),
-    },
-    "rotor": {
-        "D_ro": 138.0,
-        "D_sh": 70.0,
-        "varnish_thickness": 0.0,
-        "stack_count": 1,
-        "steel_color": (0.2, 0.2, 0.2, 1.0),
-        "varnish_color": (0.98, 0.72, 0.2, 0.25),
-    },
-    "winding": {
-        "enabled": False,
-        "kind": "hairpin",  # "hairpin" or "wire"
-        "slot_clearance": 0.1,
-        "varnish_thickness": 0.05,
-        "wire_fillet": 0.2,
-        "radial_count": 4,
-        "tangential_count": 2,
-        "conductor_gap": 0.5,
-        "copper_color": (0.72, 0.45, 0.2, 1.0),
-        "varnish_color": (0.98, 0.72, 0.2, 0.25),
-    },
-    "magnets": {
-        "alpha_v_deg": 60.0,
-        "use_center_post_width": False,  # use explicit R_m_c (keeps V pockets at expected radius)
-        "b_post": 6.0,
-        "b_post_is_outer": False,  # interpret b_post as outer rib width (V opens toward airgap)
-        "enforce_rib_clip": True,  # prevents V legs from overlapping into "arrow" pockets
-        "L_m": 18.0,
-        "t_m": 6.0,
-        "clearance": 0.2,
-        "R_m_c": 52.0,
-        "auto_clamp_R_m_c": True,  # clamp R_m_c to satisfy outer bridge constraint
-        "rotor_bridge_od": 1.5,
-        "magnet_chamfer": 0.0,
-    },
-}
 
 
-def _float_from(mapping, *keys, default=None):
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return float(mapping[key])
-    if default is None:
-        return None
-    return float(default)
+@dataclass(frozen=True)
+class GlobalConfig:
+    poles: int = 8
+    slots: int = 48
+    airgap: float = 1.0
+    angle_offset_deg: float = 0.0
+    units: str = "mm"
 
 
-def _int_from(mapping, *keys, default=None):
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return int(mapping[key])
-    if default is None:
-        return None
-    return int(default)
+@dataclass(frozen=True)
+class BuildConfig:
+    lam_thickness: float = 1.0
+    include_magnets: bool = False
+    export_enabled: bool = True
+    export_dir: str = "./out_ipmsm"
+    export_basename: str = "ipmsm_singleV"
+    dxf_from_top_face: bool = True
+    png_enabled: bool = True
+    png_width: int = 1400
+    png_height: int = 1000
+    png_edges: bool = True
+    png_gradient: bool = False
+    png_trihedron: bool = False
+    png_bgcolor: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    show_interactive: bool = True
 
 
-def _stator_spec_from_config(cfg: dict) -> StatorSpec:
-    g = cfg["global"]
-    s = cfg["stator"]
-    b = cfg.get("build", {})
+@dataclass(frozen=True)
+class StatorConfig:
+    D_so: float = 240.0
+    D_si: float = 140.0
+    b_so: float = 3.0
+    b_sn: float = 5.0
+    b_sb1: float = 5.0
+    b_sb2: float = 9.0
+    h_so: float = 2.0
+    h_sn: float = 0.0
+    h_sb: float = 23.0
+    slot_opening_inset: float = 0.1
+    slot_style: str = "semi_closed"
+    fillet_enabled: bool = True
+    fillet_r: float = 0.4
+    varnish_thickness: float = 0.0
+    stack_count: int = 1
+    steel_color: tuple[float, float, float, float] | None = (0.2, 0.2, 0.2, 1.0)
+    varnish_color: tuple[float, float, float, float] | None = (0.98, 0.72, 0.2, 0.25)
+
+
+@dataclass(frozen=True)
+class RotorConfig:
+    D_ro: float = 138.0
+    D_sh: float = 70.0
+    varnish_thickness: float = 0.0
+    stack_count: int = 1
+    steel_color: tuple[float, float, float, float] | None = (0.2, 0.2, 0.2, 1.0)
+    varnish_color: tuple[float, float, float, float] | None = (0.98, 0.72, 0.2, 0.25)
+
+
+@dataclass(frozen=True)
+class WindingConfig:
+    enabled: bool = False
+    kind: str = "hairpin"
+    slot_clearance: float = 0.1
+    varnish_thickness: float = 0.05
+    wire_fillet: float = 0.2
+    radial_count: int = 4
+    tangential_count: int = 2
+    conductor_gap: float = 0.5
+    copper_color: tuple[float, float, float, float] | None = (0.72, 0.45, 0.2, 1.0)
+    varnish_color: tuple[float, float, float, float] | None = (0.98, 0.72, 0.2, 0.25)
+
+
+@dataclass(frozen=True)
+class MagnetConfig:
+    alpha_v_deg: float = 60.0
+    use_center_post_width: bool = False
+    b_post: float = 6.0
+    b_post_is_outer: bool = False
+    enforce_rib_clip: bool = True
+    L_m: float = 18.0
+    t_m: float = 6.0
+    clearance: float = 0.2
+    R_m_c: float = 52.0
+    auto_clamp_R_m_c: bool = True
+    rotor_bridge_od: float = 1.5
+    magnet_chamfer: float = 0.0
+
+
+@dataclass(frozen=True)
+class IPMSMConfig:
+    global_: GlobalConfig = GlobalConfig()
+    build: BuildConfig = BuildConfig()
+    stator: StatorConfig = StatorConfig()
+    rotor: RotorConfig = RotorConfig()
+    winding: WindingConfig = WindingConfig()
+    magnets: MagnetConfig = MagnetConfig()
+
+
+def _stator_spec_from_config(cfg: IPMSMConfig) -> StatorSpec:
+    g = cfg.global_
+    s = cfg.stator
+    b = cfg.build
     return StatorSpec(
-        slots=_int_from(g, "slots", default=0),
-        lam_thickness=_float_from(b, "lam_thickness", default=0.0),
-        inner_diameter=_float_from(s, "D_si", "stator_inner_diameter", default=0.0),
-        outer_diameter=_float_from(s, "D_so", "stator_outer_diameter"),
-        yoke_thickness=_float_from(s, "t_y", "yoke_thickness"),
-        slot_style=str(s.get("slot_style", s.get("slot_type", "semi_closed"))).lower(),
-        slot_opening_inset=_float_from(
-            s,
-            "slot_opening_inset",
-            "bridge_thickness",
-            "t_br",
-            default=0.0,
-        ),
-        slot_opening_depth=_float_from(
-            s,
-            "h_so",
-            "slot_opening_depth",
-            default=_float_from(s, "h_tt", default=0.0),
-        ),
-        slot_neck_height=_float_from(s, "h_sn", "slot_neck_height", default=0.0),
-        slot_body_height=_float_from(s, "h_sb", "slot_body_height", default=0.0),
-        slot_depth=_float_from(s, "h_s", "slot_depth"),
-        slot_opening_width=_float_from(s, "b_so", "slot_opening_width"),
-        slot_opening_angle_deg=_float_from(s, "alpha_so_deg", "slot_opening_angle_deg"),
-        slot_neck_width=_float_from(s, "b_sn", "slot_neck_width", default=_float_from(s, "b_neck")),
-        slot_body_top_width=_float_from(
-            s,
-            "b_sb1",
-            "slot_body_width_top",
-            default=_float_from(s, "b_s"),
-        ),
-        slot_body_bottom_width=_float_from(
-            s,
-            "b_sb2",
-            "slot_body_width_bottom",
-            default=_float_from(s, "b_s"),
-        ),
-        slot_pitch_margin=float(s.get("slot_pitch_margin", 0.98)),
-        slot_angle_offset_deg=float(s.get("slot_angle_offset_deg", g.get("angle_offset_deg", 0.0))),
-        slot_bottom_arc_radius=_float_from(
-            s,
-            "slot_bottom_arc_radius",
-            "bottom_arc_radius",
-            "r_sb_arc",
-            default=0.0,
-        ),
-        slot_corner_radius=_float_from(s, "slot_corner_radius", default=0.0),
-        slot_mouth_radius=_float_from(s, "r_so_f", "slot_mouth_radius", "slot_opening_fillet", default=0.0),
-        tooth_root_radius=_float_from(s, "r_tr", "tooth_root_radius", "tooth_root_fillet", default=0.0),
-        slot_bottom_radius=_float_from(s, "r_sb_f", "slot_bottom_radius", "slot_bottom_fillet", default=0.0),
-        segment_count=_int_from(s, "segment_count", "N_seg", default=1),
-        segment_gap=_float_from(s, "segment_gap", "g_seg", default=0.0),
-        segment_gap_deg=_float_from(s, "segment_gap_deg", default=0.0),
-        segment_offset_deg=float(s.get("segment_offset_deg", 0.0)),
-        segment_radial_margin=float(s.get("segment_radial_margin", 0.1)),
-        stack_count=_int_from(s, "stack_count", default=1),
-        stack_pitch=_float_from(s, "stack_pitch", default=0.0),
-        varnish_thickness=_float_from(s, "varnish_thickness", default=0.0),
-        fillet_enabled=bool(s.get("fillet_enabled", False)),
-        fillet_r=_float_from(s, "fillet_r", default=0.0),
-        steel_color=s.get("steel_color"),
-        varnish_color=s.get("varnish_color"),
+        slots=g.slots,
+        lam_thickness=b.lam_thickness,
+        inner_diameter=s.D_si,
+        outer_diameter=s.D_so,
+        slot_style=s.slot_style,
+        slot_opening_inset=s.slot_opening_inset,
+        slot_opening_depth=s.h_so,
+        slot_neck_height=s.h_sn,
+        slot_body_height=s.h_sb,
+        slot_opening_width=s.b_so,
+        slot_neck_width=s.b_sn,
+        slot_body_top_width=s.b_sb1,
+        slot_body_bottom_width=s.b_sb2,
+        slot_angle_offset_deg=g.angle_offset_deg,
+        stack_count=s.stack_count,
+        varnish_thickness=s.varnish_thickness,
+        fillet_enabled=s.fillet_enabled,
+        fillet_r=s.fillet_r,
+        steel_color=s.steel_color,
+        varnish_color=s.varnish_color,
     )
 
 
-def _rotor_spec_from_config(cfg: dict) -> RotorSpec:
-    g = cfg["global"]
-    r = cfg["rotor"]
-    b = cfg.get("build", {})
+def _rotor_spec_from_config(cfg: IPMSMConfig) -> RotorSpec:
+    g = cfg.global_
+    r = cfg.rotor
+    b = cfg.build
     return RotorSpec(
-        poles=_int_from(g, "poles", default=0),
-        lam_thickness=_float_from(b, "lam_thickness", default=0.0),
-        outer_diameter=_float_from(r, "D_ro", "rotor_outer_diameter", default=0.0),
-        shaft_diameter=_float_from(r, "D_sh", "shaft_diameter", default=0.0),
-        angle_offset_deg=float(g.get("angle_offset_deg", 0.0)),
-        varnish_thickness=_float_from(r, "varnish_thickness", default=0.0),
-        stack_count=_int_from(r, "stack_count", default=1),
-        stack_pitch=_float_from(r, "stack_pitch", default=0.0),
-        steel_color=r.get("steel_color"),
-        varnish_color=r.get("varnish_color"),
+        poles=g.poles,
+        lam_thickness=b.lam_thickness,
+        outer_diameter=r.D_ro,
+        shaft_diameter=r.D_sh,
+        angle_offset_deg=g.angle_offset_deg,
+        varnish_thickness=r.varnish_thickness,
+        stack_count=r.stack_count,
+        steel_color=r.steel_color,
+        varnish_color=r.varnish_color,
     )
 
 
-def _magnet_spec_from_config(cfg: dict) -> MagnetSpec:
-    m = cfg["magnets"]
+def _magnet_spec_from_config(cfg: IPMSMConfig) -> MagnetSpec:
+    m = cfg.magnets
     return MagnetSpec(
-        alpha_v_deg=float(m["alpha_v_deg"]),
-        L_m=float(m["L_m"]),
-        t_m=float(m["t_m"]),
-        clearance=float(m["clearance"]),
-        R_m_c=float(m["R_m_c"]),
-        b_post=float(m.get("b_post", 0.0)),
-        magnet_chamfer=float(m.get("magnet_chamfer", 0.0)),
+        alpha_v_deg=m.alpha_v_deg,
+        L_m=m.L_m,
+        t_m=m.t_m,
+        clearance=m.clearance,
+        R_m_c=m.R_m_c,
+        b_post=m.b_post,
+        magnet_chamfer=m.magnet_chamfer,
     )
 
 
-def ensure_dir(path: str) -> None:
+def _winding_spec_from_config(cfg: IPMSMConfig) -> WindingSpec:
+    w = cfg.winding
+    return WindingSpec(
+        kind=w.kind,
+        slot_clearance=w.slot_clearance,
+        varnish_thickness=w.varnish_thickness,
+        wire_fillet=w.wire_fillet,
+        radial_count=w.radial_count,
+        tangential_count=w.tangential_count,
+        conductor_gap=w.conductor_gap,
+        copper_color=w.copper_color,
+        varnish_color=w.varnish_color,
+    )
+
+
+def _ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
@@ -231,6 +206,7 @@ def _build_combined_assembly(stator, rotor, magnets=None) -> cq.Assembly:
 
 
 def export_all(
+    cfg: IPMSMConfig,
     stator,
     rotor,
     magnets=None,
@@ -239,11 +215,11 @@ def export_all(
     rotor_varnish=None,
     rotor_steel=None,
 ):
-    if not P["build"]["export_enabled"]:
+    if not cfg.build.export_enabled:
         return
-    out_dir = P["build"]["export_dir"]
-    base = P["build"]["export_basename"]
-    ensure_dir(out_dir)
+    out_dir = cfg.build.export_dir
+    base = cfg.build.export_basename
+    _ensure_dir(out_dir)
     _export_step(stator, os.path.join(out_dir, f"{base}_stator.step"))
     _export_step(rotor, os.path.join(out_dir, f"{base}_rotor.step"))
     if varnish is not None:
@@ -254,7 +230,7 @@ def export_all(
         exporters.export(magnets, os.path.join(out_dir, f"{base}_magnets.step"))
     combined = _build_combined_assembly(stator, rotor, magnets)
     _export_step(combined, os.path.join(out_dir, f"{base}_combined.step"))
-    if P["build"].get("dxf_from_top_face", True):
+    if cfg.build.dxf_from_top_face:
         try:
             dxf_source = stator_steel if stator_steel is not None else stator
             exporters.exportDXF(dxf_source.faces(">Z").val(), os.path.join(out_dir, f"{base}_stator.dxf"))
@@ -262,13 +238,13 @@ def export_all(
             exporters.exportDXF(rotor_dxf_source.faces(">Z").val(), os.path.join(out_dir, f"{base}_rotor.dxf"))
         except Exception:
             print("WARN: DXF export failed.")
-    if P["build"].get("png_enabled", False):
-        w = int(P["build"].get("png_width", 1400))
-        h = int(P["build"].get("png_height", 1000))
-        edges = bool(P["build"].get("png_edges", True))
-        gradient = bool(P["build"].get("png_gradient", False))
-        trihedron = bool(P["build"].get("png_trihedron", False))
-        bgcolor = tuple(P["build"].get("png_bgcolor", (1.0, 1.0, 1.0)))
+    if cfg.build.png_enabled:
+        w = cfg.build.png_width
+        h = cfg.build.png_height
+        edges = cfg.build.png_edges
+        gradient = cfg.build.png_gradient
+        trihedron = cfg.build.png_trihedron
+        bgcolor = cfg.build.png_bgcolor
         show(stator, screenshot=os.path.join(out_dir, f"{base}_stator.png"), interact=False,
              edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
         show(rotor, screenshot=os.path.join(out_dir, f"{base}_rotor.png"), interact=False,
@@ -280,18 +256,26 @@ def export_all(
              edges=edges, width=w, height=h, gradient=gradient, trihedron=trihedron, bgcolor=bgcolor)
 
 
-if __name__ == "__main__":
-    stator_spec = _stator_spec_from_config(P)
-    winding_spec = WindingSpec.from_dict(P.get("winding", {}))
-    stator, stator_steel, stator_varnish = make_stator(stator_spec, winding_spec)
-    rotor_spec = _rotor_spec_from_config(P)
-    magnet_spec = _magnet_spec_from_config(P)
-    rotor, rotor_steel, rotor_varnish, magnets = make_rotor_and_magnets(
+def build_ipmsm(cfg: IPMSMConfig | None = None):
+    if cfg is None:
+        cfg = IPMSMConfig()
+    stator_spec = _stator_spec_from_config(cfg)
+    winding_spec = _winding_spec_from_config(cfg) if cfg.winding.enabled else None
+    stator, stator_steel, stator_varnish = build_stator(stator_spec, winding_spec)
+    rotor_spec = _rotor_spec_from_config(cfg)
+    magnet_spec = _magnet_spec_from_config(cfg)
+    rotor, rotor_steel, rotor_varnish, magnets = build_rotor_and_magnets(
         rotor_spec,
         magnet_spec,
-        include_magnets=P["build"].get("include_magnets", False),
+        include_magnets=cfg.build.include_magnets,
     )
-    export_all(stator, rotor, magnets, stator_varnish, stator_steel, rotor_varnish, rotor_steel)
-    if P["build"].get("show_interactive", True):
+    return stator, stator_steel, stator_varnish, rotor, rotor_steel, rotor_varnish, magnets
+
+
+if __name__ == "__main__":
+    cfg = IPMSMConfig()
+    stator, stator_steel, stator_varnish, rotor, rotor_steel, rotor_varnish, magnets = build_ipmsm(cfg)
+    export_all(cfg, stator, rotor, magnets, stator_varnish, stator_steel, rotor_varnish, rotor_steel)
+    if cfg.build.show_interactive:
         combined = _build_combined_assembly(stator, rotor, magnets)
         show(combined, width=1280, height=720, interact=True)

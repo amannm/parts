@@ -5,6 +5,8 @@ from typing import Literal
 
 import cadquery as cq
 
+from features.utils import color_from
+
 
 @dataclass(frozen=True)
 class WindingSpec:
@@ -55,19 +57,6 @@ class WindingSpec:
             copper_color=cfg.get("copper_color"),
             varnish_color=cfg.get("varnish_color"),
         )
-
-
-def _color_from(value, fallback):
-    if value is None:
-        value = fallback
-    if isinstance(value, str):
-        return cq.Color(value)
-    if isinstance(value, (list, tuple)):
-        if len(value) == 3:
-            return cq.Color(*value)
-        if len(value) == 4:
-            return cq.Color(*value)
-    return cq.Color(*fallback)
 
 
 def _validate_winding(spec: WindingSpec) -> None:
@@ -221,8 +210,8 @@ def add_windings_to_assembly(
     copper, varnish = build_winding_solids(stator_spec, spec)
     if copper is None and varnish is None:
         return None, None
-    copper_color = _color_from(spec.copper_color, (0.72, 0.45, 0.2, 1.0))
-    varnish_color = _color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
+    copper_color = color_from(spec.copper_color, (0.72, 0.45, 0.2, 1.0))
+    varnish_color = color_from(spec.varnish_color, (0.98, 0.72, 0.2, 0.25))
     if varnish is not None:
         assembly.add(varnish, name="windings_varnish", color=varnish_color)
     if copper is not None:

@@ -1,10 +1,9 @@
-import sys
-import os
-print(f"CWD: {os.getcwd()}")
-sys.path.append(os.getcwd())
-print(f"SYS.PATH: {sys.path}")
-from features.gear import GearSpec, build_gear
+from __future__ import annotations
+
 import cadquery as cq
+
+from features.gear import GearSpec, build_gear
+
 
 def test_spur_gear():
     print("Testing Spur Gear...")
@@ -14,11 +13,12 @@ def test_spur_gear():
         face_width=5.0,
         pressure_angle_deg=20.0,
         helix_angle_deg=0.0,
-        bore_diameter=5.0
+        bore_diameter=5.0,
     )
     gear = build_gear(spec)
     print("Spur Gear built successfully.")
     return gear
+
 
 def test_helical_gear():
     print("Testing Helical Gear...")
@@ -30,11 +30,12 @@ def test_helical_gear():
         helix_angle_deg=15.0,
         bore_diameter=5.0,
         hub_diameter=10.0,
-        hub_length=15.0
+        hub_length=15.0,
     )
     gear = build_gear(spec)
     print("Helical Gear built successfully.")
     return gear
+
 
 if __name__ == "__main__":
     try:
