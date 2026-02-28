@@ -45,6 +45,49 @@ def collect_versions(packages: Iterable[str]) -> Dict[str, Optional[str]]:
     return versions
 
 
+def build_stage_hashes(config_dict: Dict[str, Any]) -> Dict[str, str]:
+    geometry = config_dict.get("geometry", {})
+    tags = config_dict.get("tags", {})
+    meshing = config_dict.get("meshing", {})
+    physics = config_dict.get("physics", {})
+    materials = config_dict.get("materials", {})
+    bcs = config_dict.get("bcs", {})
+    solver = config_dict.get("solver", {})
+    outputs = config_dict.get("outputs", {})
+
+    cad_payload = {"geometry": geometry}
+    cad_hash = stable_hash(cad_payload)
+
+    mesh_payload = {
+        "cad_hash": cad_hash,
+        "tags": tags,
+        "meshing": meshing,
+    }
+    mesh_hash = stable_hash(mesh_payload)
+
+    solve_payload = {
+        "mesh_hash": mesh_hash,
+        "physics": physics,
+        "materials": materials,
+        "bcs": bcs,
+        "solver": solver,
+    }
+    solve_hash = stable_hash(solve_payload)
+
+    post_payload = {
+        "solve_hash": solve_hash,
+        "outputs": outputs,
+    }
+    post_hash = stable_hash(post_payload)
+
+    return {
+        "cad": cad_hash,
+        "mesh": mesh_hash,
+        "solve": solve_hash,
+        "post": post_hash,
+    }
+
+
 def build_provenance(
     config_dict: Dict[str, Any],
     repo_root: str | Path,
@@ -52,6 +95,7 @@ def build_provenance(
     tag_map: Optional[Dict[str, Dict[str, int]]] = None,
     mesh_stats: Optional[Dict[str, Any]] = None,
     tag_legend_path: Optional[str] = None,
+    stage_hashes: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     timestamp = _dt.datetime.now(_dt.timezone.utc).isoformat()
     packages = [
@@ -71,6 +115,7 @@ def build_provenance(
         "git_revision": get_git_revision(repo_root),
         "package_versions": collect_versions(packages),
         "config_hash": stable_hash(config_dict),
+        "stage_hashes": stage_hashes or build_stage_hashes(config_dict),
         "config": config_dict,
     }
     if tag_map is not None:

@@ -1,0 +1,17 @@
+base: examples/configs/ipmsm_magnetostatic.yaml
+name: ipmsm_angle
+output_directory: out/sweeps
+
+parameters:
+  - name: rotor_angle_deg
+    path: geometry.params.global_.angle_offset_deg
+    labels:
+      - 0deg
+      - 15deg
+      - 30deg
+      - 45deg
+    values:
+      - 0
+      - 15
+      - 30
+      - 45

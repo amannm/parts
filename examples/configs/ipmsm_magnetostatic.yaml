@@ -1,11 +1,17 @@
 geometry:
-  builder: block_with_hole
+  builder: ipmsm
   params:
-    length: 0.1
-    width: 0.1
-    height: 0.1
-    hole_radius: 0.0
-  units: m
+    global_:
+      poles: 8
+      slots: 48
+      angle_offset_deg: 0.0
+      units: mm
+    build:
+      include_magnets: true
+      export_enabled: false
+      png_enabled: false
+      show_interactive: false
+  units: mm
 
 tags:
   facets:
@@ -22,13 +28,14 @@ tags:
       rule: AllVolumes
 
 meshing:
-  global_size: 0.02
+  global_size: 4.0
 
 physics:
   model: magnetostatic
   parameters:
     include_B: true
     include_H: true
+    derived: ["B_mag", "energy_density"]
 
 bcs:
   items:
@@ -42,8 +49,9 @@ bcs:
 materials:
   by_tag:
     domain:
-      mu_r: 1000.0
-      current_density: [0.0, 0.0, 1.0e6]
+      mu_r: 1.0
+      current_density: [0.0, 0.0, 0.0]
+      magnetization: [0.0, 0.0, 1.0e5]
 
 outputs:
   directory: out

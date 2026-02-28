@@ -1,0 +1,49 @@
+geometry:
+  builder: qfn
+  params:
+    body_x: 5.0
+    body_y: 5.0
+    body_height: 0.85
+    leads_per_side: 10
+  units: mm
+
+tags:
+  facets:
+    - name: left
+      rule: PlaneAtMin
+      params:
+        axis: x
+    - name: right
+      rule: PlaneAtMax
+      params:
+        axis: x
+  cells:
+    - name: domain
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.25
+
+physics:
+  model: poisson
+  parameters:
+    source: 0.0
+    kappa: 1.0
+
+bcs:
+  items:
+    - type: dirichlet
+      tag: left
+      value: 0.0
+    - type: dirichlet
+      tag: right
+      value: 1.0
+
+materials:
+  by_tag:
+    domain:
+      kappa: 1.0
+
+outputs:
+  directory: out
+  format: vtx

@@ -64,6 +64,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"Output directory: {results['out_dir']}")
     if results.get("provenance"):
         print(f"Provenance: {results['provenance']}")
+    if results.get("artifact_index"):
+        print(f"Artifact index: {results['artifact_index']}")
+    if results.get("paraview_state"):
+        print(f"ParaView state template: {results['paraview_state']}")
+    if results.get("paraview_macro"):
+        print(f"ParaView macro: {results['paraview_macro']}")
+    if results.get("stage_hashes"):
+        print(f"Stage hashes: {results['stage_hashes']}")
+    if results.get("stage_reuse"):
+        print(f"Stage reuse: {results['stage_reuse']}")
     if results.get("cached"):
         print("Cache hit: reused existing outputs.")
     return 0

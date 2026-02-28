@@ -136,6 +136,8 @@ class OutputsConfig(BaseModel):
     reuse: bool = True
     write_tag_fields: bool = True
     write_boundary_mesh: bool = True
+    write_paraview_state: bool = True
+    paraview_state_name: str = "latest.pvsm"
 
 
 class SimStackConfig(BaseModel):

@@ -1,0 +1,51 @@
+geometry:
+  builder: w61700
+  params:
+    bore_diameter: 10.0
+    outer_diameter: 15.0
+    width: 3.0
+    include_seals: true
+  units: mm
+
+tags:
+  facets:
+    - name: left
+      rule: PlaneAtMin
+      params:
+        axis: x
+    - name: right
+      rule: PlaneAtMax
+      params:
+        axis: x
+  cells:
+    - name: domain
+      rule: AllVolumes
+
+meshing:
+  global_size: 0.4
+
+physics:
+  model: heat
+  parameters:
+    source: 0.0
+    kappa: 15.0
+
+bcs:
+  items:
+    - type: robin
+      tag: left
+      value: 293.15
+      alpha: 8.0
+    - type: robin
+      tag: right
+      value: 303.15
+      alpha: 8.0
+
+materials:
+  by_tag:
+    domain:
+      kappa: 15.0
+
+outputs:
+  directory: out
+  format: vtx
