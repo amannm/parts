@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from simstack.config import BoundaryLayerConfig, DistanceRefineConfig, MeshingConfig, TagsConfig
+from simstack.domain.config import BoundaryLayerConfig, DistanceRefineConfig, MeshSpec, TaggingSpec
 from simstack.mesh.tag_transfer import TagTransferResult, apply_tag_rules
 
 
@@ -38,7 +38,7 @@ class GmshSession:
             gmsh.finalize()
 
 
-def _apply_mesh_options(config: MeshingConfig) -> None:
+def _apply_mesh_options(config: MeshSpec) -> None:
     import gmsh
 
     if config.global_size is not None:
@@ -303,8 +303,8 @@ def _mesh_quality_stats(bins: int) -> Dict[str, Any]:
 
 def build_gmsh_model(
     step_path: str | Path,
-    tags: TagsConfig,
-    config: MeshingConfig,
+    tags: TaggingSpec,
+    config: MeshSpec,
     *,
     geometry_dim: int = 3,
 ) -> GmshBuildResult:

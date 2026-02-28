@@ -8,30 +8,29 @@ geometry:
   units: mm
   dimension: 3
   coordinate_system: cartesian
-
-tags:
+tagging:
   facets:
-    - type: PlaneAtMin
-      name: left
-      axis: x
-    - type: PlaneAtMax
-      name: right
-      axis: x
+  - type: PlaneAtMin
+    name: left
+    axis: x
+  - type: PlaneAtMax
+    name: right
+    axis: x
   cells:
-    - type: AllVolumes
-      name: domain
-
-meshing:
+  - type: AllVolumes
+    name: domain
+mesh:
   global_size: 0.4
-
-physics:
-  model: heat
-  parameters:
-    source: 0.0
-    kappa: 15.0
-
-bcs:
-  items:
+workflow:
+  mode: single
+  nodes:
+  - id: main
+    physics:
+      model: heat
+      parameters:
+        source: 0.0
+        kappa: 15.0
+    bcs:
     - type: robin
       tag: left
       value: 293.15
@@ -40,18 +39,14 @@ bcs:
       tag: right
       value: 303.15
       alpha: 8.0
-
+  couplings: []
+  solver: {}
 materials:
   by_tag:
     domain:
       kappa: 15.0
-
-workflow:
-  type: single
-
-units:
-  internal_system: SI
-
+solver: {}
 outputs:
   directory: out
   format: vtx
+metadata: {}

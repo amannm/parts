@@ -8,49 +8,53 @@ geometry:
   units: m
   dimension: 3
   coordinate_system: cartesian
-
-tags:
+tagging:
   facets:
-    - type: PlaneAtMin
-      name: x_min
-      axis: x
-    - type: PlaneAtMax
-      name: x_max
-      axis: x
+  - type: PlaneAtMin
+    name: x_min
+    axis: x
+  - type: PlaneAtMax
+    name: x_max
+    axis: x
   cells:
-    - type: AllVolumes
-      name: domain
-
-meshing:
+  - type: AllVolumes
+    name: domain
+mesh:
   global_size: 0.02
-
-physics:
-  model: magnetostatic
-  parameters:
-    include_B: true
-    include_H: true
-
-bcs:
-  items:
+workflow:
+  mode: single
+  nodes:
+  - id: main
+    physics:
+      model: magnetostatic
+      parameters:
+        include_B: true
+        include_H: true
+    bcs:
     - type: dirichlet
       tag: x_min
-      value: [0.0, 0.0, 0.0]
+      value:
+      - 0.0
+      - 0.0
+      - 0.0
     - type: dirichlet
       tag: x_max
-      value: [0.0, 0.0, 0.0]
-
+      value:
+      - 0.0
+      - 0.0
+      - 0.0
+  couplings: []
+  solver: {}
 materials:
   by_tag:
     domain:
       mu_r: 1000.0
-      current_density: [0.0, 0.0, 1000000.0]
-
-workflow:
-  type: single
-
-units:
-  internal_system: SI
-
+      current_density:
+      - 0.0
+      - 0.0
+      - 1000000.0
+solver: {}
 outputs:
   directory: out
   format: vtx
+metadata: {}

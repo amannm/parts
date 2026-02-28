@@ -8,55 +8,67 @@ geometry:
   units: m
   dimension: 3
   coordinate_system: cartesian
-
-tags:
+tagging:
   facets:
-    - type: PlaneAtMin
-      name: z_min
-      axis: z
-    - type: PlaneAtMax
-      name: z_max
-      axis: z
+  - type: PlaneAtMin
+    name: z_min
+    axis: z
+  - type: PlaneAtMax
+    name: z_max
+    axis: z
   cells:
-    - type: AllVolumes
-      name: domain
-
-meshing:
+  - type: AllVolumes
+    name: domain
+mesh:
   global_size: 0.01
-
-physics:
-  model: electro_thermal
-  parameters:
-    targets:
-      - name: warmup
-        tag: domain
-        temperature: 333.15
-        mode: avg
-        direction: above
-    electric:
-      include_joule_heat: true
-      bcs:
-        - type: dirichlet
-          tag: z_min
-          value: 0.0
-        - type: dirichlet
-          tag: z_max
-          value: 1.0
-    heat:
-      bcs:
-        - type: robin
-          tag: z_max
-          value: 293.15
-          alpha: 10.0
-    time:
-      dt: 0.1
-      t_end: 10.0
-      initial: 293.15
-    phase_change:
-      latent_heat: 2260000.0
-      delta_T: 1.0
-      transition_temp: 373.15
-
+workflow:
+  mode: coupled
+  nodes:
+  - id: electric
+    physics:
+      model: electric_ac
+      parameters:
+        include_joule_heat: true
+    bcs:
+    - type: dirichlet
+      tag: z_min
+      value: 0.0
+    - type: dirichlet
+      tag: z_max
+      value: 1.0
+  - id: thermal
+    physics:
+      model: heat_transient
+      parameters:
+        time:
+          dt: 0.1
+          t_end: 10.0
+          initial: 293.15
+        targets:
+        - name: warmup
+          tag: domain
+          temperature: 333.15
+          mode: avg
+          direction: above
+    bcs:
+    - type: robin
+      tag: z_max
+      value: 293.15
+      alpha: 10.0
+  couplings:
+  - from_node: electric
+    field: joule_heat
+    to_node: thermal
+    target: source_field
+    operator: field
+    reduction: avg
+  - from_node: thermal
+    field: T
+    to_node: electric
+    target: runtime_material_variables.T
+    operator: scalar-reduction
+    reduction: avg
+  solver: {}
 materials:
   by_tag:
     domain:
@@ -64,63 +76,14 @@ materials:
         model: polynomial
         variable: T
         reference: 293.15
-        coefficients: [58000000.0, -10000.0]
+        coefficients:
+        - 58000000.0
+        - -10000.0
       kappa: 0.6
       rho: 1000.0
       cp: 4182.0
-
-workflow:
-  type: coupled
-  stages:
-    - id: electric
-      physics:
-        model: electric_ac
-        parameters:
-          include_joule_heat: true
-      bcs:
-        items:
-          - type: dirichlet
-            tag: z_min
-            value: 0.0
-          - type: dirichlet
-            tag: z_max
-            value: 1.0
-    - id: thermal
-      physics:
-        model: heat_transient
-        parameters:
-          time:
-            dt: 0.1
-            t_end: 10.0
-            initial: 293.15
-          targets:
-            - name: warmup
-              tag: domain
-              temperature: 333.15
-              mode: avg
-              direction: above
-      bcs:
-        items:
-          - type: robin
-            tag: z_max
-            value: 293.15
-            alpha: 10.0
-  couplings:
-    - from_stage: electric
-      field: joule_heat
-      to_stage: thermal
-      target: source_field
-      mode: field
-    - from_stage: thermal
-      field: T
-      to_stage: electric
-      target: runtime_material_variables.T
-      mode: avg
-      reduction: avg
-
-units:
-  internal_system: SI
-
+solver: {}
 outputs:
   directory: out
   format: vtx
+metadata: {}

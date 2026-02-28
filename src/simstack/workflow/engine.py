@@ -6,7 +6,6 @@ import copy
 import math
 from typing import Any, Dict, List
 
-from simstack.config import BCsConfig, PhysicsConfig, SimStackConfig, WorkflowStageConfig
 from simstack.core.artifacts import SolveArtifact
 from simstack.fem.solve import solve_problem
 
@@ -78,49 +77,47 @@ def _merge_fields(stage_results: Dict[str, SolveArtifact]) -> Dict[str, Any]:
     return merged
 
 
-def _build_single_stage(
-    config: SimStackConfig,
-    stage: WorkflowStageConfig | None,
-) -> tuple[PhysicsConfig, BCsConfig]:
-    if stage is None:
-        return config.physics, config.bcs
-    return stage.physics, stage.bcs
+def _runtime_params(config: Any, params: Dict[str, Any], runtime_vars: Dict[str, float] | None = None) -> Dict[str, Any]:
+    out = dict(params)
+    out["runtime_dimension"] = int(config.geometry.dimension)
+    out["runtime_coordinate_system"] = str(config.geometry.coordinate_system)
+    if runtime_vars:
+        out["runtime_material_variables"] = dict(runtime_vars)
+    return out
 
 
 def run_workflow(
     mesh: Any,
     cell_tags: Any,
     facet_tags: Any,
-    config: SimStackConfig,
+    config: Any,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
     workflow = config.workflow
 
-    # Default single-stage behavior.
-    if workflow.type == "single" or not workflow.stages:
-        stage = workflow.stages[0] if workflow.stages else None
-        physics_cfg, bcs_cfg = _build_single_stage(config, stage)
-
-        params = dict(physics_cfg.parameters_dict())
-        params["runtime_dimension"] = config.geometry.dimension
-        params["runtime_coordinate_system"] = config.geometry.coordinate_system
-
-        solve = solve_problem(
+    if workflow.mode == "single":
+        if not workflow.nodes:
+            raise ValueError("workflow.mode='single' requires one workflow node")
+        node = workflow.nodes[0]
+        physics_cfg = {
+            "model": node.physics.model,
+            "parameters": _runtime_params(config, node.physics.parameters),
+        }
+        return solve_problem(
             mesh,
             cell_tags,
             facet_tags,
-            PhysicsConfig(model=physics_cfg.model, parameters=params),
-            bcs_cfg,
+            physics_cfg,
+            list(node.bcs),
             config.materials,
             config.solver,
             tag_map,
         )
-        return solve
 
-    stages = workflow.stages
+    stages = workflow.nodes
     couplings = workflow.couplings
     max_iters = int(workflow.solver.max_iters)
-    relax = float(workflow.solver.relaxation)
+    relax_default = float(workflow.solver.relaxation)
     rtol = float(workflow.solver.rtol)
     atol = float(workflow.solver.atol)
 
@@ -137,41 +134,51 @@ def run_workflow(
 
         stage_params: Dict[str, Dict[str, Any]] = {}
         for stage in stages:
-            params = dict(stage.physics.parameters_dict())
-            params["runtime_dimension"] = config.geometry.dimension
-            params["runtime_coordinate_system"] = config.geometry.coordinate_system
-            stage_params[stage.id] = params
+            stage_params[stage.id] = _runtime_params(config, stage.physics.parameters)
 
         for coupling in couplings:
-            source_artifact = previous_results.get(coupling.from_stage)
+            source_artifact = previous_results.get(coupling.from_node)
             if source_artifact is None:
                 continue
             source_field = source_artifact.fields.get(coupling.field)
             if source_field is None:
                 continue
 
-            if coupling.mode == "field":
-                _set_nested(stage_params[coupling.to_stage], coupling.target, source_field)
+            if coupling.operator == "field":
+                _set_nested(stage_params[coupling.to_node], coupling.target, source_field)
                 continue
 
             raw = _field_reduction(source_field, coupling.reduction)
             if raw is None:
                 continue
-            key = f"{coupling.from_stage}:{coupling.field}->{coupling.to_stage}:{coupling.target}"
-            prev = previous_scalars.get(key, raw)
-            mixed = relax * raw + (1.0 - relax) * prev
-            previous_scalars[key] = mixed
-            _set_nested(stage_params[coupling.to_stage], coupling.target, mixed)
+
+            if coupling.operator == "scalar-reduction":
+                _set_nested(stage_params[coupling.to_node], coupling.target, raw)
+                continue
+
+            if coupling.operator == "relaxed-scalar":
+                key = f"{coupling.from_node}:{coupling.field}->{coupling.to_node}:{coupling.target}"
+                prev = previous_scalars.get(key, raw)
+                relax = float(coupling.relaxation) if coupling.relaxation is not None else relax_default
+                mixed = relax * raw + (1.0 - relax) * prev
+                previous_scalars[key] = mixed
+                _set_nested(stage_params[coupling.to_node], coupling.target, mixed)
+                continue
+
+            raise ValueError(f"Unsupported coupling operator: {coupling.operator}")
 
         stage_reports: Dict[str, Any] = {}
         for stage in stages:
-            stage_cfg = PhysicsConfig(model=stage.physics.model, parameters=copy.deepcopy(stage_params[stage.id]))
+            stage_cfg = {
+                "model": stage.physics.model,
+                "parameters": copy.deepcopy(stage_params[stage.id]),
+            }
             artifact = solve_problem(
                 mesh,
                 cell_tags,
                 facet_tags,
                 stage_cfg,
-                stage.bcs,
+                list(stage.bcs),
                 config.materials,
                 config.solver,
                 tag_map,
@@ -193,10 +200,9 @@ def run_workflow(
             delta = _field_delta(prev.fields.get(prev_name), cur.fields.get(cur_name))
             max_delta = max(max_delta, delta)
 
-        if math.isfinite(max_delta):
-            if max_delta <= atol or max_delta <= rtol:
-                converged = True
-                stop_reason = "converged"
+        if math.isfinite(max_delta) and (max_delta <= atol or max_delta <= rtol):
+            converged = True
+            stop_reason = "converged"
 
         iteration_reports.append(
             {
@@ -216,13 +222,13 @@ def run_workflow(
     final_fields = _merge_fields(current_results)
     solver_report = {
         "workflow": {
-            "type": "coupled",
+            "mode": "coupled",
             "scheme": workflow.solver.scheme,
             "iterations": len(iteration_reports),
             "max_iters": max_iters,
             "rtol": rtol,
             "atol": atol,
-            "relaxation": relax,
+            "relaxation": relax_default,
             "converged": converged,
             "stop_reason": stop_reason,
             "history": iteration_reports,

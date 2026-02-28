@@ -1,18 +1,74 @@
-base: examples/configs/heat.yaml
-name: heat_opt
-output_directory: out/sweeps
-mode: optuna
-samples: 8
-seed: 42
-parameters:
+geometry:
+  builder: block_with_hole
+  params:
+    length: 1.0
+    width: 1.0
+    height: 1.0
+    hole_radius: 0.2
+  units: m
+  dimension: 3
+  coordinate_system: cartesian
+tagging:
+  facets:
+  - type: PlaneAtMin
+    name: left
+    axis: x
+  - type: PlaneAtMax
+    name: right
+    axis: x
+  cells:
+  - type: AllVolumes
+    name: solid
+mesh:
+  global_size: 0.1
+workflow:
+  mode: single
+  nodes:
+  - id: main
+    physics:
+      model: heat
+      parameters:
+        source: 1.0
+        kappa: 5.0
+    bcs:
+    - type: dirichlet
+      tag: left
+      value: 300.0
+    - type: robin
+      tag: right
+      value: 290.0
+      alpha: 10.0
+  couplings: []
+  solver: {}
+materials:
+  by_tag:
+    solid:
+      kappa: 5.0
+solver: {}
+outputs:
+  directory: out
+  format: vtx
+metadata: {}
+exploration:
+  mode: optuna
+  name: heat_opt
+  output_directory: out/sweeps
+  samples: 8
+  seed: 42
+  parameters:
   - name: kappa
-    path: physics.parameters.kappa
-    bounds: [1.0, 25.0]
+    path: workflow.nodes.0.physics.parameters.kappa
+    bounds:
+    - 1.0
+    - 25.0
   - name: source
-    path: physics.parameters.source
-    bounds: [0.0, 10.0]
-objective:
-  path: iterations
-  goal: min
-parallel:
-  workers: 1
+    path: workflow.nodes.0.physics.parameters.source
+    bounds:
+    - 0.0
+    - 10.0
+  objective:
+    path: iterations
+    goal: min
+  constraints: []
+  parallel:
+    workers: 1

@@ -45,7 +45,7 @@ def validate_config_units(config: Dict[str, Any]) -> None:
 def normalize_config_units(config: SimStackConfig) -> SimStackConfig:
     """Normalize unit metadata.
 
-    In v2, internal units are SI; for now this preserves config and acts as
+    Internal units are SI; for now this preserves config and acts as
     a stable hook for future numerical conversion at load time.
     """
     if config.units.internal_system != "SI":

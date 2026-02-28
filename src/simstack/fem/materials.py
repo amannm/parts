@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from simstack.config import MaterialsConfig
+from simstack.domain.config import MaterialsSpec
 from simstack.fem.material_models import evaluate_material_map
 
 
 def build_matdb(
-    materials: MaterialsConfig,
+    materials: MaterialsSpec,
     tag_map: Dict[str, Dict[str, int]],
     *,
     variables: Dict[str, float] | None = None,

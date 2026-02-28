@@ -6,14 +6,13 @@ import dataclasses as dc
 from dataclasses import dataclass
 import importlib
 from importlib import metadata
+from importlib import resources
 from pathlib import Path
-import sys
 from typing import Any, Callable, Dict, Iterable
 
 from pydantic import BaseModel
 import yaml
 
-from simstack.config import GeometryConfig
 from simstack.core.artifacts import CadArtifact
 from simstack.cad.bridge import export_step
 
@@ -29,8 +28,8 @@ class BuilderRegistration:
 
 _BUILDERS: Dict[str, BuilderRegistration] = {}
 _PLUGINS_LOADED = False
-_LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
-_CATALOG_PATH = _LIBRARY_DIR / "catalog.yaml"
+_CATALOG_PACKAGE = "simparts"
+_CATALOG_RESOURCE = "catalog.yaml"
 
 
 def _entry_points(group: str) -> Iterable[metadata.EntryPoint]:
@@ -90,19 +89,7 @@ def list_builders() -> list[str]:
 
 
 def _import_library_module(module_name: str) -> Any:
-    if not _LIBRARY_DIR.exists():
-        raise FileNotFoundError(f"Library directory not found: {_LIBRARY_DIR}")
-
-    path_str = str(_LIBRARY_DIR)
-    inserted = False
-    if path_str not in sys.path:
-        sys.path.insert(0, path_str)
-        inserted = True
-    try:
-        return importlib.import_module(module_name)
-    finally:
-        if inserted:
-            sys.path.remove(path_str)
+    return importlib.import_module(f"{_CATALOG_PACKAGE}.{module_name}")
 
 
 def _patch_dataclass(default_obj: Any, overrides: Dict[str, Any]) -> Any:
@@ -173,7 +160,7 @@ def _build_ipmsm(params: Dict[str, Any]) -> Any:
     return module._build_combined_assembly(stator, rotor, magnets)
 
 
-def build_geometry(geometry: GeometryConfig, out_dir: str | Path | None = None) -> CadArtifact:
+def build_geometry(geometry: Any, out_dir: str | Path | None = None) -> CadArtifact:
     _load_builder_plugins()
     if geometry.builder not in _BUILDERS:
         available = ", ".join(sorted(_BUILDERS.keys()))
@@ -202,7 +189,10 @@ def build_geometry(geometry: GeometryConfig, out_dir: str | Path | None = None) 
 
 
 def load_part_catalog(path: str | Path | None = None) -> list[dict[str, Any]]:
-    catalog_path = Path(path) if path else _CATALOG_PATH
+    if path is None:
+        catalog_path = Path(resources.files(_CATALOG_PACKAGE) / _CATALOG_RESOURCE)
+    else:
+        catalog_path = Path(path)
     if not catalog_path.exists():
         return []
     data = yaml.safe_load(catalog_path.read_text())
@@ -245,7 +235,7 @@ def scaffold_part_config(name: str, path: str | Path | None = None) -> dict[str,
 
     return {
         "geometry": geometry,
-        "tags": {
+        "tagging": {
             "facets": [
                 {"type": "PlaneAtMin", "name": "x_min", "axis": "x"},
                 {"type": "PlaneAtMax", "name": "x_max", "axis": "x"},
@@ -254,17 +244,22 @@ def scaffold_part_config(name: str, path: str | Path | None = None) -> dict[str,
                 {"type": "AllVolumes", "name": "domain"},
             ],
         },
-        "meshing": {"global_size": 1.0},
+        "mesh": {"global_size": 1.0},
         "materials": {"by_tag": {"domain": {"kappa": 1.0}}},
-        "physics": {"model": "poisson", "parameters": {"kappa": 1.0, "source": 0.0}},
-        "bcs": {
-            "items": [
-                {"type": "dirichlet", "tag": "x_min", "value": 0.0},
-                {"type": "dirichlet", "tag": "x_max", "value": 1.0},
-            ]
+        "workflow": {
+            "mode": "single",
+            "nodes": [
+                {
+                    "id": "main",
+                    "physics": {"model": "poisson", "parameters": {"kappa": 1.0, "source": 0.0}},
+                    "bcs": [
+                        {"type": "dirichlet", "tag": "x_min", "value": 0.0},
+                        {"type": "dirichlet", "tag": "x_max", "value": 1.0},
+                    ],
+                }
+            ],
         },
-        "workflow": {"type": "single"},
-        "units": {"internal_system": "SI"},
+        "solver": {"preset": "linear_default", "options": {}},
         "outputs": {"directory": "out", "format": "vtx"},
         "metadata": {
             "part": {

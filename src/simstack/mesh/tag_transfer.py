@@ -9,13 +9,12 @@ import re
 import time
 from typing import Any, Dict, Iterable, List, Tuple
 
-from simstack.config import (
+from simstack.domain.config import (
     CellAllVolumesRule,
     CellBBoxPatchRule,
     CellByNameRegexRule,
     CellByVolumeRangeRule,
     CellConnectedToFacetTagRule,
-    CellRule,
     FacetAdjacentToCellTagRule,
     FacetBBoxPatchRule,
     FacetByAreaRangeRule,
@@ -23,9 +22,8 @@ from simstack.config import (
     FacetNormalApproxRule,
     FacetPlaneAtMaxRule,
     FacetPlaneAtMinRule,
-    FacetRule,
     TagComposite,
-    TagsConfig,
+    TaggingSpec,
 )
 
 _AXIS_MAP = {"x": 0, "y": 1, "z": 2, 0: 0, 1: 1, 2: 2}
@@ -346,7 +344,7 @@ def _apply_composites(
         )
 
 
-def apply_tag_rules(model: Any, tags: TagsConfig, *, geometry_dim: int = 3) -> TagTransferResult:
+def apply_tag_rules(model: Any, tags: TaggingSpec, *, geometry_dim: int = 3) -> TagTransferResult:
     facet_dim = 2 if geometry_dim == 3 else 1
     cell_dim = 3 if geometry_dim == 3 else 2
 

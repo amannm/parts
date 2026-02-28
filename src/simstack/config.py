@@ -1,4 +1,4 @@
-"""Configuration schema and loaders for SimStack v2."""
+"""Configuration schema and loaders for SimStack."""
 
 from __future__ import annotations
 

@@ -5,14 +5,13 @@ from __future__ import annotations
 import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from simstack.config import BCSpec, BCsConfig, MaterialsConfig, PhysicsConfig, SolverConfig
 from simstack.core.registry import DEFAULT_REGISTRY
 from simstack.core.artifacts import SolveArtifact
 from simstack.fem.materials import build_matdb
 
 
 SolvePlan = Callable[
-    [Any, Any, Any, PhysicsConfig, BCsConfig, MaterialsConfig, SolverConfig, Dict[str, Dict[str, int]]],
+    [Any, Any, Any, Any, Any, Any, Any, Dict[str, Dict[str, int]]],
     SolveArtifact,
 ]
 _SOLVE_PLANS: Dict[str, SolvePlan] = {}
@@ -28,31 +27,58 @@ def register_solve_plan(model_name: str) -> Callable[[SolvePlan], SolvePlan]:
     return decorator
 
 
-def _merge_solver_options(solver: SolverConfig) -> Dict[str, Any]:
+def _obj_get(data: Any, key: str, default: Any = None) -> Any:
+    if isinstance(data, dict):
+        return data.get(key, default)
+    return getattr(data, key, default)
+
+
+def _physics_model(physics: Any) -> str:
+    model = _obj_get(physics, "model")
+    if not isinstance(model, str) or not model:
+        raise ValueError("Physics object must define non-empty 'model'")
+    return model
+
+
+def _merge_solver_options(solver: Any) -> Dict[str, Any]:
     options: Dict[str, Any] = {}
-    preset = DEFAULT_REGISTRY.solver_presets.get(solver.preset, {})
+    preset_name = _obj_get(solver, "preset", "linear_default")
+    preset = DEFAULT_REGISTRY.solver_presets.get(str(preset_name), {})
     options.update(preset)
-    options.update(solver.options)
+    raw = _obj_get(solver, "options", {})
+    if isinstance(raw, dict):
+        options.update(raw)
     return options
 
 
-def _physics_params(physics: PhysicsConfig) -> Dict[str, Any]:
-    return physics.parameters_dict()
+def _physics_params(physics: Any) -> Dict[str, Any]:
+    if hasattr(physics, "parameters_dict"):
+        return dict(physics.parameters_dict())
+    params = _obj_get(physics, "parameters", {})
+    if isinstance(params, dict):
+        return dict(params)
+    return {}
 
 
-def _dump_bcs(bcs: BCsConfig) -> List[Dict[str, Any]]:
-    return [bc.model_dump(mode="json") for bc in bcs.items]
+def _dump_bcs(bcs: Any) -> List[Dict[str, Any]]:
+    raw = _obj_get(bcs, "items", bcs)
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise TypeError("BCs must be a list or object exposing .items list")
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        if hasattr(item, "model_dump"):
+            out.append(item.model_dump(mode="json"))
+        elif isinstance(item, dict):
+            out.append(dict(item))
+        else:
+            raise TypeError("BC entries must be dicts or pydantic models")
+    return out
 
 
-def _ensure_bcs_config(items: Any) -> BCsConfig:
-    if isinstance(items, BCsConfig):
-        return items
-    if items is None:
-        return BCsConfig(items=[])
-    if isinstance(items, list):
-        specs = [BCSpec.model_validate(item) for item in items]
-        return BCsConfig(items=specs)
-    raise TypeError("BCs must be a BCsConfig or list of BC spec dicts")
+def _ensure_bcs_list(items: Any) -> List[Dict[str, Any]]:
+    return _dump_bcs(items)
 
 
 def _runtime_material_variables(params: Dict[str, Any]) -> Dict[str, float]:
@@ -246,10 +272,10 @@ def solve_linear_problem(
     mesh: Any,
     cell_tags: Any,
     facet_tags: Any,
-    physics: PhysicsConfig,
-    bcs: BCsConfig,
-    materials: MaterialsConfig,
-    solver: SolverConfig,
+    physics: Any,
+    bcs: Any,
+    materials: Any,
+    solver: Any,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
     from dolfinx.fem import petsc
@@ -259,7 +285,8 @@ def solve_linear_problem(
     params["runtime_tag_map_facets"] = tag_map.get("facets", {})
     params["runtime_tag_map_cells"] = tag_map.get("cells", {})
 
-    model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
+    physics_model = _physics_model(physics)
+    model_factory = DEFAULT_REGISTRY.get_physics(physics_model)
     model = model_factory()
 
     field_spec = model.declare_fields(params)
@@ -287,7 +314,7 @@ def solve_linear_problem(
         L += term
 
     weight = _axisymmetric_weight(mesh, params)
-    if weight is not None and physics.model in {"poisson", "heat", "heat_transient", "electric_ac"}:
+    if weight is not None and physics_model in {"poisson", "heat", "heat_transient", "electric_ac"}:
         a = weight * a
         L = weight * L
 
@@ -356,10 +383,10 @@ def solve_transient_heat(
     mesh: Any,
     cell_tags: Any,
     facet_tags: Any,
-    physics: PhysicsConfig,
-    bcs: BCsConfig,
-    materials: MaterialsConfig,
-    solver: SolverConfig,
+    physics: Any,
+    bcs: Any,
+    materials: Any,
+    solver: Any,
     tag_map: Dict[str, Dict[str, int]],
     *,
     source_field: Any | None = None,
@@ -372,7 +399,8 @@ def solve_transient_heat(
     params["runtime_tag_map_facets"] = tag_map.get("facets", {})
     params["runtime_tag_map_cells"] = tag_map.get("cells", {})
 
-    model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
+    physics_model = _physics_model(physics)
+    model_factory = DEFAULT_REGISTRY.get_physics(physics_model)
     model = model_factory()
 
     field_spec = model.declare_fields(params)
@@ -506,10 +534,10 @@ def solve_electro_thermal(
     mesh: Any,
     cell_tags: Any,
     facet_tags: Any,
-    physics: PhysicsConfig,
-    bcs: BCsConfig,
-    materials: MaterialsConfig,
-    solver: SolverConfig,
+    physics: Any,
+    bcs: Any,
+    materials: Any,
+    solver: Any,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
     params = _physics_params(physics)
@@ -532,10 +560,10 @@ def solve_electro_thermal(
         electric_params["include_joule_heat"] = True
 
     default_bcs = _dump_bcs(bcs)
-    electric_bcs = _ensure_bcs_config(electric_params.get("bcs", default_bcs))
-    heat_bcs = _ensure_bcs_config(heat_params.get("bcs", default_bcs))
+    electric_bcs = _ensure_bcs_list(electric_params.get("bcs", default_bcs))
+    heat_bcs = _ensure_bcs_list(heat_params.get("bcs", default_bcs))
 
-    electric_cfg = PhysicsConfig(model="electric_ac", parameters=electric_params)
+    electric_cfg = {"model": "electric_ac", "parameters": electric_params}
     electric_artifact = solve_linear_problem(
         mesh,
         cell_tags,
@@ -552,7 +580,7 @@ def solve_electro_thermal(
         raise RuntimeError("Electric solve did not produce 'joule_heat' field")
 
     heat_params["source_field"] = joule_heat
-    heat_cfg = PhysicsConfig(model="heat_transient", parameters=heat_params)
+    heat_cfg = {"model": "heat_transient", "parameters": heat_params}
     heat_artifact = solve_transient_heat(
         mesh,
         cell_tags,
@@ -581,11 +609,11 @@ def solve_problem(
     mesh: Any,
     cell_tags: Any,
     facet_tags: Any,
-    physics: PhysicsConfig,
-    bcs: BCsConfig,
-    materials: MaterialsConfig,
-    solver: SolverConfig,
+    physics: Any,
+    bcs: Any,
+    materials: Any,
+    solver: Any,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
-    plan = _SOLVE_PLANS.get(physics.model, solve_linear_problem)
+    plan = _SOLVE_PLANS.get(_physics_model(physics), solve_linear_problem)
     return plan(mesh, cell_tags, facet_tags, physics, bcs, materials, solver, tag_map)
