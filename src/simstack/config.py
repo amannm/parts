@@ -6,7 +6,210 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class BCSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["dirichlet", "neumann", "robin"]
+    tag: str
+    value: Any = None
+    component: Optional[int] = None
+    alpha: Optional[float] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BCsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: List[BCSpec] = Field(default_factory=list)
+
+
+class TimeParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    t0: float | None = None
+    start: float | None = None
+    dt: float | None = None
+    default_dt: float | None = None
+    steps: int | None = None
+    num_steps: int | None = None
+    t_end: float | None = None
+    end: float | None = None
+    max_steps: int | None = None
+    initial: float | None = None
+    T0: float | None = None
+
+    @model_validator(mode="after")
+    def _validate_dt(self) -> "TimeParameters":
+        dt = self.dt if self.dt is not None else self.default_dt
+        if dt is not None and dt <= 0:
+            raise ValueError("Time step dt must be positive")
+        return self
+
+
+class TargetSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    tag: str
+    temperature: float
+    mode: Literal["avg", "min", "max"] = "avg"
+    direction: Literal["above", "below"] = "above"
+
+
+class PhaseChangeParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    latent_heat: float = 0.0
+    delta_T: float | None = None
+    mushy_delta: float | None = None
+    transition_temp: float = 373.15
+
+
+class PoissonParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    degree: int = 1
+    kappa: float = 1.0
+    source: float = 0.0
+
+
+class HeatParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    degree: int = 1
+    kappa: float = 1.0
+    source: float = 0.0
+
+
+class HeatTransientParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    degree: int = 1
+    kappa: float = 1.0
+    rho: float = 1.0
+    cp: float = 1.0
+    source: float = 0.0
+    initial: float | None = None
+    T0: float | None = None
+    time: TimeParameters | None = None
+    phase_change: PhaseChangeParameters | None = None
+    targets: List[TargetSpec] = Field(default_factory=list)
+    bcs: List[BCSpec] | None = None
+
+    @field_validator("targets", mode="before")
+    @classmethod
+    def _normalize_targets(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            return [value]
+        return value
+
+
+class ElectricACParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    degree: int = 1
+    sigma: float | None = None
+    conductivity: float | None = None
+    source: float = 0.0
+    include_joule_heat: bool = True
+    joule_scale: float = 1.0
+    derived: List[str] = Field(default_factory=list)
+    bcs: List[BCSpec] | None = None
+
+
+class MagnetostaticTorqueParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str
+    axis: List[float] | None = None
+    origin: List[float] | None = None
+
+
+class MagnetostaticParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    degree: int = 1
+    mu0: float | None = None
+    mu_r: float | None = None
+    mu: float | None = None
+    current_density: float | List[float] | None = None
+    J: float | List[float] | None = None
+    magnetization: float | List[float] | None = None
+    M: float | List[float] | None = None
+    include_B: bool = True
+    include_H: bool = True
+    derived: List[str] = Field(default_factory=list)
+    torque: MagnetostaticTorqueParameters | None = None
+
+
+class ElasticityParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    degree: int = 1
+    lambda_: float | None = Field(default=None, alias="lambda")
+    mu: float | None = None
+    E: float | None = None
+    nu: float | None = None
+    body_force: float | List[float] | None = None
+    derived: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_lame(self) -> "ElasticityParameters":
+        has_lame = self.lambda_ is not None and self.mu is not None
+        has_enu = self.E is not None and self.nu is not None
+        if not (has_lame or has_enu):
+            raise ValueError("Elasticity requires either (lambda, mu) or (E, nu)")
+        return self
+
+
+class ElectroThermalParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    electric: ElectricACParameters = Field(default_factory=ElectricACParameters)
+    heat: HeatTransientParameters = Field(default_factory=HeatTransientParameters)
+    time: TimeParameters | None = None
+    phase_change: PhaseChangeParameters | None = None
+    targets: List[TargetSpec] = Field(default_factory=list)
+
+    @field_validator("targets", mode="before")
+    @classmethod
+    def _normalize_targets(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, dict):
+            return [value]
+        return value
+
+
+PhysicsParameters = (
+    PoissonParameters
+    | HeatParameters
+    | HeatTransientParameters
+    | ElasticityParameters
+    | ElectricACParameters
+    | MagnetostaticParameters
+    | ElectroThermalParameters
+    | Dict[str, Any]
+)
+
+
+_PHYSICS_PARAMETER_MODELS: Dict[str, type[BaseModel]] = {}
+
+
+def register_physics_parameter_model(model_name: str, params_model: type[BaseModel] | None) -> None:
+    if params_model is None:
+        _PHYSICS_PARAMETER_MODELS.pop(model_name, None)
+        return
+    _PHYSICS_PARAMETER_MODELS[model_name] = params_model
+
+
+def get_physics_parameter_model(model_name: str) -> type[BaseModel] | None:
+    return _PHYSICS_PARAMETER_MODELS.get(model_name)
 
 
 class GeometryConfig(BaseModel):
@@ -15,6 +218,21 @@ class GeometryConfig(BaseModel):
     builder: str
     params: Dict[str, Any] = Field(default_factory=dict)
     units: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_builder_params(self) -> "GeometryConfig":
+        try:
+            from simstack.cad.build import get_builder_params_model
+        except Exception:
+            return self
+
+        model_cls = get_builder_params_model(self.builder)
+        if model_cls is None:
+            return self
+
+        validated = model_cls.model_validate(self.params)
+        self.params = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return self
 
 
 class TagRule(BaseModel):
@@ -63,60 +281,38 @@ class PhysicsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str
-    parameters: Dict[str, Any] = Field(default_factory=dict)
+    parameters: PhysicsParameters = Field(default_factory=dict)
 
-    @field_validator("parameters")
-    @classmethod
-    def _validate_targets(cls, value: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(value, dict):
-            raise TypeError("physics.parameters must be a dict")
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "PhysicsConfig":
+        params_model = get_physics_parameter_model(self.model)
+        raw = self.parameters
 
-        time_cfg = value.get("time")
-        if isinstance(time_cfg, dict) and "targets" in time_cfg:
-            raise ValueError("time.targets is not supported; move targets to physics.parameters.targets")
+        if params_model is None:
+            if isinstance(raw, BaseModel):
+                self.parameters = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
+            elif not isinstance(raw, dict):
+                raise TypeError("physics.parameters must be an object")
+            return self
 
-        raw = value.get("targets")
-        if raw is None:
-            return value
+        if isinstance(raw, BaseModel):
+            if isinstance(raw, params_model):
+                return self
+            raw = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+        if not isinstance(raw, dict):
+            raise TypeError("physics.parameters must be an object")
+
+        self.parameters = params_model.model_validate(raw)
+        return self
+
+    def parameters_dict(self) -> Dict[str, Any]:
+        raw = self.parameters
+        if isinstance(raw, BaseModel):
+            return raw.model_dump(mode="json", by_alias=True, exclude_none=True)
         if isinstance(raw, dict):
-            raw_list = [raw]
-        elif isinstance(raw, list):
-            raw_list = raw
-        else:
-            raise TypeError("physics.parameters.targets must be a dict or list of dicts")
-
-        for idx, spec in enumerate(raw_list):
-            if not isinstance(spec, dict):
-                raise TypeError(f"targets[{idx}] must be a dict")
-            if "tag" not in spec:
-                raise ValueError(f"targets[{idx}] missing 'tag'")
-            if "temperature" not in spec:
-                raise ValueError(f"targets[{idx}] missing 'temperature'")
-            mode = spec.get("mode", "avg")
-            if mode not in {"avg", "min", "max"}:
-                raise ValueError(f"targets[{idx}] invalid mode '{mode}'")
-            direction = spec.get("direction", "above")
-            if direction not in {"above", "below"}:
-                raise ValueError(f"targets[{idx}] invalid direction '{direction}'")
-
-        return value
-
-
-class BCSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["dirichlet", "neumann", "robin"]
-    tag: str
-    value: Any = None
-    component: Optional[int] = None
-    alpha: Optional[float] = None
-    params: Dict[str, Any] = Field(default_factory=dict)
-
-
-class BCsConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    items: List[BCSpec] = Field(default_factory=list)
+            return raw
+        raise TypeError("physics.parameters must be a dict or pydantic model")
 
 
 class SolverConfig(BaseModel):
@@ -201,6 +397,19 @@ class SweepConfig(BaseModel):
         return value
 
 
+def _register_builtin_parameter_models() -> None:
+    register_physics_parameter_model("poisson", PoissonParameters)
+    register_physics_parameter_model("heat", HeatParameters)
+    register_physics_parameter_model("heat_transient", HeatTransientParameters)
+    register_physics_parameter_model("elasticity", ElasticityParameters)
+    register_physics_parameter_model("electric_ac", ElectricACParameters)
+    register_physics_parameter_model("magnetostatic", MagnetostaticParameters)
+    register_physics_parameter_model("electro_thermal", ElectroThermalParameters)
+
+
+_register_builtin_parameter_models()
+
+
 def load_config(path: str | Path) -> SimStackConfig:
     path = Path(path)
     if not path.exists():
@@ -222,4 +431,6 @@ def load_sweep_config(path: str | Path) -> SweepConfig:
 
 
 def config_to_dict(config: SimStackConfig) -> Dict[str, Any]:
-    return config.model_dump(mode="json", by_alias=True, exclude_none=True)
+    data = config.model_dump(mode="json", by_alias=True, exclude_none=True)
+    data["physics"]["parameters"] = config.physics.parameters_dict()
+    return data

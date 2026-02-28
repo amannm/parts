@@ -3,12 +3,29 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from simstack.config import BCSpec, BCsConfig, MaterialsConfig, PhysicsConfig, SolverConfig
 from simstack.core.registry import DEFAULT_REGISTRY
 from simstack.core.artifacts import SolveArtifact
 from simstack.fem.materials import build_matdb
+
+
+SolvePlan = Callable[
+    [Any, Any, Any, PhysicsConfig, BCsConfig, MaterialsConfig, SolverConfig, Dict[str, Dict[str, int]]],
+    SolveArtifact,
+]
+_SOLVE_PLANS: Dict[str, SolvePlan] = {}
+
+
+def register_solve_plan(model_name: str) -> Callable[[SolvePlan], SolvePlan]:
+    def decorator(func: SolvePlan) -> SolvePlan:
+        if model_name in _SOLVE_PLANS:
+            raise ValueError(f"Solve plan already registered for model '{model_name}'")
+        _SOLVE_PLANS[model_name] = func
+        return func
+
+    return decorator
 
 
 def _merge_solver_options(solver: SolverConfig) -> Dict[str, Any]:
@@ -17,6 +34,10 @@ def _merge_solver_options(solver: SolverConfig) -> Dict[str, Any]:
     options.update(preset)
     options.update(solver.options)
     return options
+
+
+def _physics_params(physics: PhysicsConfig) -> Dict[str, Any]:
+    return physics.parameters_dict()
 
 
 def _dump_bcs(bcs: BCsConfig) -> List[Dict[str, Any]]:
@@ -199,18 +220,19 @@ def solve_linear_problem(
     solver: SolverConfig,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
-    from dolfinx import fem
     from dolfinx.fem import petsc
     from ufl import Measure
+
+    params = _physics_params(physics)
 
     model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
     model = model_factory()
 
-    field_spec = model.declare_fields(physics.parameters)
-    spaces = model.build_spaces(mesh, field_spec, physics.parameters)
+    field_spec = model.declare_fields(params)
+    spaces = model.build_spaces(mesh, field_spec, params)
 
     matdb = build_matdb(materials, tag_map)
-    coeffs = model.build_coefficients(mesh, cell_tags, matdb, physics.parameters)
+    coeffs = model.build_coefficients(mesh, cell_tags, matdb, params)
     measures = {
         "dx": Measure("dx", domain=mesh, subdomain_data=cell_tags),
         "ds": Measure("ds", domain=mesh, subdomain_data=facet_tags),
@@ -223,7 +245,7 @@ def solve_linear_problem(
     }
     dirichlet_bcs, a_terms, L_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
 
-    a, L = model.build_forms(spaces, coeffs, measures, physics.parameters)
+    a, L = model.build_forms(spaces, coeffs, measures, params)
     for term in a_terms:
         a += term
     for term in L_terms:
@@ -241,7 +263,7 @@ def solve_linear_problem(
     primary_name = field_spec[0]["name"] if field_spec else "u"
     uh.name = primary_name
     fields = {primary_name: uh}
-    for derived in model.outputs(fields, coeffs, physics.parameters):
+    for derived in model.outputs(fields, coeffs, params):
         name = derived.get("name")
         field = derived.get("field")
         if name and field is not None:
@@ -252,7 +274,7 @@ def solve_linear_problem(
             fields,
             coeffs,
             measures,
-            physics.parameters,
+            params,
             tag_map=tag_map,
             facet_tags=facet_tags,
         )
@@ -262,6 +284,7 @@ def solve_linear_problem(
     return SolveArtifact(fields=fields, derived_fields={}, solver_report=solver_info, timings={})
 
 
+@register_solve_plan("heat_transient")
 def solve_transient_heat(
     mesh: Any,
     cell_tags: Any,
@@ -278,14 +301,16 @@ def solve_transient_heat(
     from dolfinx.fem import petsc
     from ufl import Measure, TestFunction, TrialFunction
 
+    params = _physics_params(physics)
+
     model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
     model = model_factory()
 
-    field_spec = model.declare_fields(physics.parameters)
-    spaces = model.build_spaces(mesh, field_spec, physics.parameters)
+    field_spec = model.declare_fields(params)
+    spaces = model.build_spaces(mesh, field_spec, params)
 
     matdb = build_matdb(materials, tag_map)
-    coeffs = model.build_coefficients(mesh, cell_tags, matdb, physics.parameters)
+    coeffs = model.build_coefficients(mesh, cell_tags, matdb, params)
     if source_field is not None:
         coeffs["source"] = source_field
 
@@ -301,7 +326,7 @@ def solve_transient_heat(
     }
     dirichlet_bcs, a_terms, L_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
 
-    a_base, L_base = model.build_forms(spaces, coeffs, measures, physics.parameters)
+    a_base, L_base = model.build_forms(spaces, coeffs, measures, params)
 
     V = spaces["V"]
     T = TrialFunction(V)
@@ -316,9 +341,16 @@ def solve_transient_heat(
     V0 = fem.FunctionSpace(mesh, ("DG", 0))
     rho_cp = fem.Function(V0)
 
-    time_params = physics.parameters or {}
+    time_params = params or {}
     t0, t_end, dt, steps = _parse_time_config(time_params)
-    initial = float(time_params.get("initial", time_params.get("T0", 293.15)))
+    initial_raw = time_params.get("initial", time_params.get("T0"))
+    if initial_raw is None:
+        time_cfg = time_params.get("time", {})
+        if isinstance(time_cfg, dict):
+            initial_raw = time_cfg.get("initial", time_cfg.get("T0"))
+    if initial_raw is None:
+        initial_raw = 293.15
+    initial = float(initial_raw)
 
     T_prev = fem.Function(V)
     T_prev.x.array[:] = initial
@@ -375,7 +407,7 @@ def solve_transient_heat(
 
     T_new.name = field_spec[0]["name"] if field_spec else "T"
     fields = {T_new.name: T_new}
-    for derived in model.outputs(fields, coeffs, physics.parameters):
+    for derived in model.outputs(fields, coeffs, params):
         name = derived.get("name")
         field = derived.get("field")
         if name and field is not None:
@@ -392,6 +424,7 @@ def solve_transient_heat(
     return SolveArtifact(fields=fields, derived_fields={}, solver_report=solver_info, timings={})
 
 
+@register_solve_plan("electro_thermal")
 def solve_electro_thermal(
     mesh: Any,
     cell_tags: Any,
@@ -402,13 +435,15 @@ def solve_electro_thermal(
     solver: SolverConfig,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
-    params = physics.parameters or {}
+    params = _physics_params(physics)
     electric_params = dict(params.get("electric", {}))
     heat_params = dict(params.get("heat", {}))
     if "time" in params and "time" not in heat_params:
         heat_params["time"] = params["time"]
     if "targets" in params and "targets" not in heat_params:
         heat_params["targets"] = params["targets"]
+    if "phase_change" in params and "phase_change" not in heat_params:
+        heat_params["phase_change"] = params["phase_change"]
 
     if "include_joule_heat" not in electric_params:
         electric_params["include_joule_heat"] = True
@@ -468,8 +503,5 @@ def solve_problem(
     solver: SolverConfig,
     tag_map: Dict[str, Dict[str, int]],
 ) -> SolveArtifact:
-    if physics.model == "heat_transient":
-        return solve_transient_heat(mesh, cell_tags, facet_tags, physics, bcs, materials, solver, tag_map)
-    if physics.model == "electro_thermal":
-        return solve_electro_thermal(mesh, cell_tags, facet_tags, physics, bcs, materials, solver, tag_map)
-    return solve_linear_problem(mesh, cell_tags, facet_tags, physics, bcs, materials, solver, tag_map)
+    plan = _SOLVE_PLANS.get(physics.model, solve_linear_problem)
+    return plan(mesh, cell_tags, facet_tags, physics, bcs, materials, solver, tag_map)

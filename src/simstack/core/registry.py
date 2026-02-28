@@ -3,7 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Protocol
+from importlib import metadata
+from typing import Any, Callable, Dict, Iterable, Protocol
+
+from simstack.config import (
+    ElasticityParameters,
+    ElectricACParameters,
+    HeatParameters,
+    HeatTransientParameters,
+    MagnetostaticParameters,
+    PoissonParameters,
+    register_physics_parameter_model,
+)
 
 
 class PhysicsModule(Protocol):
@@ -20,10 +31,18 @@ class Registry:
     physics: Dict[str, Callable[[], PhysicsModule]] = field(default_factory=dict)
     solver_presets: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
-    def register_physics(self, name: str, factory: Callable[[], PhysicsModule]) -> None:
+    def register_physics(
+        self,
+        name: str,
+        factory: Callable[[], PhysicsModule],
+        *,
+        parameters_model: type[Any] | None = None,
+    ) -> None:
         if name in self.physics:
             raise ValueError(f"Physics model already registered: {name}")
         self.physics[name] = factory
+        if parameters_model is not None:
+            register_physics_parameter_model(name, parameters_model)
 
     def get_physics(self, name: str) -> Callable[[], PhysicsModule]:
         if name not in self.physics:
@@ -32,6 +51,25 @@ class Registry:
 
     def add_solver_preset(self, name: str, options: Dict[str, Any]) -> None:
         self.solver_presets[name] = options
+
+
+def _entry_points(group: str) -> Iterable[metadata.EntryPoint]:
+    all_eps = metadata.entry_points()
+    if hasattr(all_eps, "select"):
+        return list(all_eps.select(group=group))
+    return list(all_eps.get(group, []))
+
+
+def _load_physics_plugins(registry: Registry) -> None:
+    for ep in _entry_points("simstack.physics"):
+        plugin = ep.load()
+        if not callable(plugin):
+            continue
+        try:
+            plugin(registry)
+        except TypeError:
+            # Fallback: entry point directly provides a PhysicsModule factory.
+            registry.register_physics(ep.name, plugin)
 
 
 DEFAULT_REGISTRY = Registry(
@@ -52,12 +90,13 @@ def _register_defaults() -> None:
     from simstack.fem.physics.electric_ac import ElectricACModel
     from simstack.fem.physics.magnetostatic import MagnetostaticModel
 
-    DEFAULT_REGISTRY.register_physics("poisson", PoissonModel)
-    DEFAULT_REGISTRY.register_physics("heat", HeatModel)
-    DEFAULT_REGISTRY.register_physics("heat_transient", HeatTransientModel)
-    DEFAULT_REGISTRY.register_physics("elasticity", ElasticityModel)
-    DEFAULT_REGISTRY.register_physics("electric_ac", ElectricACModel)
-    DEFAULT_REGISTRY.register_physics("magnetostatic", MagnetostaticModel)
+    DEFAULT_REGISTRY.register_physics("poisson", PoissonModel, parameters_model=PoissonParameters)
+    DEFAULT_REGISTRY.register_physics("heat", HeatModel, parameters_model=HeatParameters)
+    DEFAULT_REGISTRY.register_physics("heat_transient", HeatTransientModel, parameters_model=HeatTransientParameters)
+    DEFAULT_REGISTRY.register_physics("elasticity", ElasticityModel, parameters_model=ElasticityParameters)
+    DEFAULT_REGISTRY.register_physics("electric_ac", ElectricACModel, parameters_model=ElectricACParameters)
+    DEFAULT_REGISTRY.register_physics("magnetostatic", MagnetostaticModel, parameters_model=MagnetostaticParameters)
 
 
 _register_defaults()
+_load_physics_plugins(DEFAULT_REGISTRY)

@@ -4,6 +4,7 @@
 
 # Non-goals
 - Do not worry about backwards compatibility with anything.
+- Do not focus on testing at this time.
 
 # Reference material (symlinked)
 - [CadQuery Source Code](reference/cadquery)

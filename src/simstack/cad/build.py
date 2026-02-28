@@ -1,12 +1,16 @@
-"""CAD builders (CadQuery integration)."""
+"""CAD builder registry and CadQuery integration."""
 
 from __future__ import annotations
 
 import dataclasses as dc
+from dataclasses import dataclass
 import importlib
+from importlib import metadata
 from pathlib import Path
 import sys
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Iterable
+
+from pydantic import BaseModel
 
 from simstack.config import GeometryConfig
 from simstack.core.artifacts import CadArtifact
@@ -14,16 +18,68 @@ from simstack.cad.bridge import export_step
 
 
 Builder = Callable[[Dict[str, Any]], Any]
-_BUILDERS: Dict[str, Builder] = {}
+
+
+@dataclass
+class BuilderRegistration:
+    factory: Builder
+    params_model: type[BaseModel] | None = None
+
+
+_BUILDERS: Dict[str, BuilderRegistration] = {}
+_PLUGINS_LOADED = False
 _LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
 
 
-def register_builder(name: str) -> Callable[[Builder], Builder]:
+def _entry_points(group: str) -> Iterable[metadata.EntryPoint]:
+    all_eps = metadata.entry_points()
+    if hasattr(all_eps, "select"):
+        return list(all_eps.select(group=group))
+    return list(all_eps.get(group, []))
+
+
+def _register_builder(name: str, builder: Builder, params_model: type[BaseModel] | None = None) -> None:
+    if name in _BUILDERS:
+        raise ValueError(f"CAD builder already registered: {name}")
+    _BUILDERS[name] = BuilderRegistration(factory=builder, params_model=params_model)
+
+
+def register_builder(
+    name: str,
+    *,
+    params_model: type[BaseModel] | None = None,
+) -> Callable[[Builder], Builder]:
     def decorator(func: Builder) -> Builder:
-        _BUILDERS[name] = func
+        _register_builder(name, func, params_model=params_model)
         return func
 
     return decorator
+
+
+def _load_builder_plugins() -> None:
+    global _PLUGINS_LOADED
+    if _PLUGINS_LOADED:
+        return
+
+    for ep in _entry_points("simstack.builders"):
+        plugin = ep.load()
+        if not callable(plugin):
+            continue
+        try:
+            plugin(register_builder)
+        except TypeError:
+            # Fallback: entry point directly provides a builder function.
+            _register_builder(ep.name, plugin)
+
+    _PLUGINS_LOADED = True
+
+
+def get_builder_params_model(name: str) -> type[BaseModel] | None:
+    _load_builder_plugins()
+    registration = _BUILDERS.get(name)
+    if registration is None:
+        return None
+    return registration.params_model
 
 
 def _import_library_module(module_name: str) -> Any:
@@ -111,11 +167,18 @@ def _build_ipmsm(params: Dict[str, Any]) -> Any:
 
 
 def build_geometry(geometry: GeometryConfig, out_dir: str | Path | None = None) -> CadArtifact:
+    _load_builder_plugins()
     if geometry.builder not in _BUILDERS:
-        raise KeyError(f"Unknown CAD builder: {geometry.builder}")
+        available = ", ".join(sorted(_BUILDERS.keys()))
+        raise KeyError(f"Unknown CAD builder: {geometry.builder}. Available: {available}")
 
-    builder = _BUILDERS[geometry.builder]
-    shape = builder(geometry.params)
+    registration = _BUILDERS[geometry.builder]
+    params = geometry.params
+    if registration.params_model is not None:
+        validated = registration.params_model.model_validate(params)
+        params = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    shape = registration.factory(params)
 
     step_path: Path | None = None
     if out_dir is not None:
@@ -127,5 +190,5 @@ def build_geometry(geometry: GeometryConfig, out_dir: str | Path | None = None) 
         tag_spec=None,
         bbox=None,
         units=geometry.units,
-        cad_provenance={"builder": geometry.builder, "params": geometry.params},
+        cad_provenance={"builder": geometry.builder, "params": params},
     )
