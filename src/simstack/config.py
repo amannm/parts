@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 
 class BCSpec(BaseModel):
@@ -186,18 +193,6 @@ class ElectroThermalParameters(BaseModel):
         return value
 
 
-PhysicsParameters = (
-    PoissonParameters
-    | HeatParameters
-    | HeatTransientParameters
-    | ElasticityParameters
-    | ElectricACParameters
-    | MagnetostaticParameters
-    | ElectroThermalParameters
-    | Dict[str, Any]
-)
-
-
 _PHYSICS_PARAMETER_MODELS: Dict[str, type[BaseModel]] = {}
 
 
@@ -277,34 +272,11 @@ class MaterialsConfig(BaseModel):
     by_tag: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
-class PhysicsConfig(BaseModel):
+class _PhysicsConfigBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str
-    parameters: PhysicsParameters = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _validate_parameters(self) -> "PhysicsConfig":
-        params_model = get_physics_parameter_model(self.model)
-        raw = self.parameters
-
-        if params_model is None:
-            if isinstance(raw, BaseModel):
-                self.parameters = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
-            elif not isinstance(raw, dict):
-                raise TypeError("physics.parameters must be an object")
-            return self
-
-        if isinstance(raw, BaseModel):
-            if isinstance(raw, params_model):
-                return self
-            raw = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
-
-        if not isinstance(raw, dict):
-            raise TypeError("physics.parameters must be an object")
-
-        self.parameters = params_model.model_validate(raw)
-        return self
+    parameters: Any = Field(default_factory=dict)
 
     def parameters_dict(self) -> Dict[str, Any]:
         raw = self.parameters
@@ -313,6 +285,124 @@ class PhysicsConfig(BaseModel):
         if isinstance(raw, dict):
             return raw
         raise TypeError("physics.parameters must be a dict or pydantic model")
+
+
+class PoissonPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["poisson"]
+    parameters: PoissonParameters = Field(default_factory=PoissonParameters)
+
+
+class HeatPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["heat"]
+    parameters: HeatParameters = Field(default_factory=HeatParameters)
+
+
+class HeatTransientPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["heat_transient"]
+    parameters: HeatTransientParameters = Field(default_factory=HeatTransientParameters)
+
+
+class ElasticityPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["elasticity"]
+    parameters: ElasticityParameters
+
+
+class ElectricACPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["electric_ac"]
+    parameters: ElectricACParameters = Field(default_factory=ElectricACParameters)
+
+
+class MagnetostaticPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["magnetostatic"]
+    parameters: MagnetostaticParameters = Field(default_factory=MagnetostaticParameters)
+
+
+class ElectroThermalPhysicsConfig(_PhysicsConfigBase):
+    model: Literal["electro_thermal"]
+    parameters: ElectroThermalParameters = Field(default_factory=ElectroThermalParameters)
+
+
+BuiltinPhysicsConfig = Annotated[
+    PoissonPhysicsConfig
+    | HeatPhysicsConfig
+    | HeatTransientPhysicsConfig
+    | ElasticityPhysicsConfig
+    | ElectricACPhysicsConfig
+    | MagnetostaticPhysicsConfig
+    | ElectroThermalPhysicsConfig,
+    Field(discriminator="model"),
+]
+
+
+_BUILTIN_PHYSICS_MODELS = {
+    "poisson",
+    "heat",
+    "heat_transient",
+    "elasticity",
+    "electric_ac",
+    "magnetostatic",
+    "electro_thermal",
+}
+_BUILTIN_PHYSICS_ADAPTER = TypeAdapter(BuiltinPhysicsConfig)
+
+
+class PluginPhysicsConfig(_PhysicsConfigBase):
+    model: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_plugin_parameters(self) -> "PluginPhysicsConfig":
+        params_model = get_physics_parameter_model(self.model)
+        if params_model is not None and self.model not in _BUILTIN_PHYSICS_MODELS:
+            validated = params_model.model_validate(self.parameters)
+            self.parameters = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return self
+
+
+class PhysicsConfig(BaseModel):
+    """Physics config wrapper around discriminated builtin configs + plugin fallback."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    spec: BuiltinPhysicsConfig | PluginPhysicsConfig
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_spec(cls, value: Any) -> Any:
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, dict):
+            raise TypeError("physics config must be an object")
+        if "spec" in value:
+            return value
+
+        model_name = value.get("model")
+        if not isinstance(model_name, str) or not model_name:
+            raise ValueError("physics.model must be a non-empty string")
+
+        if model_name in _BUILTIN_PHYSICS_MODELS:
+            spec = _BUILTIN_PHYSICS_ADAPTER.validate_python(value)
+        else:
+            spec = PluginPhysicsConfig.model_validate(value)
+
+        return {"spec": spec}
+
+    @property
+    def model(self) -> str:
+        return self.spec.model
+
+    @property
+    def parameters(self) -> Any:
+        return self.spec.parameters
+
+    def parameters_dict(self) -> Dict[str, Any]:
+        return self.spec.parameters_dict()
+
+    def model_dump_external(self) -> Dict[str, Any]:
+        return {
+            "model": self.model,
+            "parameters": self.parameters_dict(),
+        }
 
 
 class SolverConfig(BaseModel):
@@ -432,5 +522,5 @@ def load_sweep_config(path: str | Path) -> SweepConfig:
 
 def config_to_dict(config: SimStackConfig) -> Dict[str, Any]:
     data = config.model_dump(mode="json", by_alias=True, exclude_none=True)
-    data["physics"]["parameters"] = config.physics.parameters_dict()
+    data["physics"] = config.physics.model_dump_external()
     return data
