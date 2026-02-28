@@ -7,3 +7,5 @@ reference/*/*
 .venv
 *.step
 #*.png
+__pycache__
+out
