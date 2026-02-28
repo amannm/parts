@@ -45,7 +45,8 @@ class PoissonModel:
     ) -> Tuple[List[Any], List[Any], List[Any]]:
         from dolfinx import fem
         from petsc4py import PETSc
-        from ufl import TestFunction, TrialFunction
+        import math
+        from ufl import SpatialCoordinate, TestFunction, TrialFunction
 
         bcs: List[Any] = []
         a_terms: List[Any] = []
@@ -56,6 +57,12 @@ class PoissonModel:
 
         v = TestFunction(V)
         u = TrialFunction(V)
+        params = config.get("params") or {}
+        axisymmetric = (
+            str(params.get("runtime_coordinate_system", "cartesian")) == "axisymmetric"
+            and int(params.get("runtime_dimension", 3)) == 2
+        )
+        axis_weight = 2.0 * math.pi * SpatialCoordinate(V.mesh)[0] if axisymmetric else 1.0
         for bc in config.get("bcs", []):
             tag_id = config["tag_map"]["facets"].get(bc["tag"])
             if tag_id is None:
@@ -68,13 +75,13 @@ class PoissonModel:
                 bcs.append(fem.dirichletbc(value, dofs, V))
             elif bc["type"] == "neumann":
                 g = PETSc.ScalarType(bc["value"])
-                L_terms.append(g * v * ds(tag_id))
+                L_terms.append(axis_weight * g * v * ds(tag_id))
             elif bc["type"] == "robin":
                 params = bc.get("params") or {}
                 alpha = PETSc.ScalarType(params.get("alpha", bc.get("alpha", 1.0)))
                 u0 = PETSc.ScalarType(bc.get("value", 0.0))
-                a_terms.append(alpha * u * v * ds(tag_id))
-                L_terms.append(alpha * u0 * v * ds(tag_id))
+                a_terms.append(axis_weight * alpha * u * v * ds(tag_id))
+                L_terms.append(axis_weight * alpha * u0 * v * ds(tag_id))
             else:
                 raise ValueError(f"Unsupported BC type: {bc['type']}")
 
@@ -87,12 +94,27 @@ class PoissonModel:
         u = TrialFunction(V)
         v = TestFunction(V)
         dx = measures["dx"]
+        ds = measures["ds"]
 
         kappa = coeffs["kappa"]
         source = coeffs["source"]
 
         a = inner(kappa * grad(u), grad(v)) * dx
         L = source * v * dx
+
+        sources = config.get("sources") or {}
+        facet_map = config.get("runtime_tag_map_facets", {}) if isinstance(config, dict) else {}
+        if isinstance(sources, dict) and isinstance(facet_map, dict):
+            for group in ("surface", "line"):
+                for spec in sources.get(group, []) or []:
+                    if not isinstance(spec, dict):
+                        continue
+                    tag_name = spec.get("tag")
+                    tag_id = facet_map.get(tag_name)
+                    if tag_id is None:
+                        raise KeyError(f"Unknown facet tag for poisson source: {tag_name}")
+                    value = float(spec.get("value", 0.0))
+                    L += value * v * ds(tag_id)
         return a, L
 
     def outputs(self, fields: Dict[str, Any], coeffs: Dict[str, Any], config: Dict[str, Any]) -> List[Dict[str, Any]]:

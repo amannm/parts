@@ -1,7 +1,8 @@
 base: examples/configs/ipmsm_magnetostatic.yaml
 name: ipmsm_angle
 output_directory: out/sweeps
-
+mode: cartesian
+seed: 42
 parameters:
   - name: rotor_angle_deg
     path: geometry.params.global_.angle_offset_deg
@@ -15,3 +16,5 @@ parameters:
       - 15
       - 30
       - 45
+parallel:
+  workers: 1

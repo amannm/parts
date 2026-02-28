@@ -1,0 +1,56 @@
+parts:
+  - name: block
+    builder: block_with_hole
+    description: Parametric rectangular block with optional through hole.
+    units_default: m
+    default_params:
+      length: 1.0
+      width: 1.0
+      height: 1.0
+      hole_radius: 0.0
+    example_config: examples/configs/hello.yaml
+  - name: qfn
+    builder: qfn
+    description: QFN IC package with leads and exposed thermal pad.
+    units_default: mm
+    default_params:
+      body_x: 5.0
+      body_y: 5.0
+      body_height: 0.85
+      leads_per_side: 10
+    example_config: examples/configs/qfn_poisson.yaml
+  - name: rgy0020d
+    builder: rgy0020d
+    description: TI RGY0020D QFN package.
+    units_default: mm
+    default_params:
+      body_x: 3.5
+      body_y: 4.5
+      body_height: 1.0
+    example_config: examples/configs/qfn_poisson.yaml
+  - name: w61700
+    builder: w61700
+    description: Deep groove ball bearing assembly.
+    units_default: mm
+    default_params:
+      bore_diameter: 10.0
+      outer_diameter: 15.0
+      width: 3.0
+      include_seals: true
+    example_config: examples/configs/w61700_heat.yaml
+  - name: ipmsm
+    builder: ipmsm
+    description: Interior permanent magnet synchronous machine assembly.
+    units_default: mm
+    default_params:
+      global_:
+        poles: 8
+        slots: 48
+        angle_offset_deg: 0.0
+        units: mm
+      build:
+        include_magnets: true
+        export_enabled: false
+        png_enabled: false
+        show_interactive: false
+    example_config: examples/configs/ipmsm_magnetostatic.yaml

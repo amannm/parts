@@ -12,20 +12,20 @@ geometry:
       png_enabled: false
       show_interactive: false
   units: mm
+  dimension: 3
+  coordinate_system: cartesian
 
 tags:
   facets:
-    - name: x_min
-      rule: PlaneAtMin
-      params:
-        axis: x
-    - name: x_max
-      rule: PlaneAtMax
-      params:
-        axis: x
+    - type: PlaneAtMin
+      name: x_min
+      axis: x
+    - type: PlaneAtMax
+      name: x_max
+      axis: x
   cells:
-    - name: domain
-      rule: AllVolumes
+    - type: AllVolumes
+      name: domain
 
 meshing:
   global_size: 4.0
@@ -51,7 +51,13 @@ materials:
     domain:
       mu_r: 1.0
       current_density: [0.0, 0.0, 0.0]
-      magnetization: [0.0, 0.0, 1.0e5]
+      magnetization: [0.0, 0.0, 100000.0]
+
+workflow:
+  type: single
+
+units:
+  internal_system: SI
 
 outputs:
   directory: out

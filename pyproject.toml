@@ -14,8 +14,11 @@ authors = [
 ]
 dependencies = [
   "cadquery",
+  "optuna>=4.0",
+  "pint>=0.24",
   "pydantic>=2.6",
   "pyyaml>=6.0",
+  "scipy>=1.13",
 ]
 
 [project.scripts]

@@ -53,6 +53,8 @@ def build_stage_hashes(config_dict: Dict[str, Any]) -> Dict[str, str]:
     materials = config_dict.get("materials", {})
     bcs = config_dict.get("bcs", {})
     solver = config_dict.get("solver", {})
+    workflow = config_dict.get("workflow", {})
+    units = config_dict.get("units", {})
     outputs = config_dict.get("outputs", {})
 
     cad_payload = {"geometry": geometry}
@@ -71,6 +73,8 @@ def build_stage_hashes(config_dict: Dict[str, Any]) -> Dict[str, str]:
         "materials": materials,
         "bcs": bcs,
         "solver": solver,
+        "workflow": workflow,
+        "units": units,
     }
     solve_hash = stable_hash(solve_payload)
 

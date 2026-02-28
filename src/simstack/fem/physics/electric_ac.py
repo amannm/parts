@@ -58,7 +58,8 @@ class ElectricACModel:
     ) -> Tuple[List[Any], List[Any], List[Any]]:
         from dolfinx import fem
         from petsc4py import PETSc
-        from ufl import TestFunction, TrialFunction
+        import math
+        from ufl import SpatialCoordinate, TestFunction, TrialFunction
 
         bcs: List[Any] = []
         a_terms: List[Any] = []
@@ -69,6 +70,12 @@ class ElectricACModel:
 
         v = TestFunction(V)
         u = TrialFunction(V)
+        params = config.get("params") or {}
+        axisymmetric = (
+            str(params.get("runtime_coordinate_system", "cartesian")) == "axisymmetric"
+            and int(params.get("runtime_dimension", 3)) == 2
+        )
+        axis_weight = 2.0 * math.pi * SpatialCoordinate(V.mesh)[0] if axisymmetric else 1.0
 
         for bc in config.get("bcs", []):
             tag_id = config["tag_map"]["facets"].get(bc["tag"])
@@ -82,13 +89,13 @@ class ElectricACModel:
                 bcs.append(fem.dirichletbc(value, dofs, V))
             elif bc["type"] == "neumann":
                 jn = PETSc.ScalarType(bc["value"])
-                L_terms.append(jn * v * ds(tag_id))
+                L_terms.append(axis_weight * jn * v * ds(tag_id))
             elif bc["type"] == "robin":
                 params = bc.get("params") or {}
                 alpha = PETSc.ScalarType(params.get("alpha", bc.get("alpha", 1.0)))
                 v0 = PETSc.ScalarType(bc.get("value", 0.0))
-                a_terms.append(alpha * u * v * ds(tag_id))
-                L_terms.append(alpha * v0 * v * ds(tag_id))
+                a_terms.append(axis_weight * alpha * u * v * ds(tag_id))
+                L_terms.append(axis_weight * alpha * v0 * v * ds(tag_id))
             else:
                 raise ValueError(f"Unsupported BC type: {bc['type']}")
 
@@ -101,12 +108,27 @@ class ElectricACModel:
         u = TrialFunction(V)
         v = TestFunction(V)
         dx = measures["dx"]
+        ds = measures["ds"]
 
         sigma = coeffs["sigma"]
         source = coeffs["source"]
 
         a = inner(sigma * grad(u), grad(v)) * dx
         L = source * v * dx
+
+        sources = config.get("sources") or {}
+        facet_map = config.get("runtime_tag_map_facets", {}) if isinstance(config, dict) else {}
+        if isinstance(sources, dict) and isinstance(facet_map, dict):
+            for group in ("surface", "line"):
+                for spec in sources.get(group, []) or []:
+                    if not isinstance(spec, dict):
+                        continue
+                    tag_name = spec.get("tag")
+                    tag_id = facet_map.get(tag_name)
+                    if tag_id is None:
+                        raise KeyError(f"Unknown facet tag for electric source: {tag_name}")
+                    value = float(spec.get("value", 0.0))
+                    L += value * v * ds(tag_id)
         return a, L
 
     def outputs(self, fields: Dict[str, Any], coeffs: Dict[str, Any], config: Dict[str, Any]) -> List[Dict[str, Any]]:

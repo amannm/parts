@@ -9,7 +9,6 @@ from typing import Any, Dict
 from simstack.cad.build import build_geometry
 from simstack.config import config_to_dict
 from simstack.core.pipeline import RunContext, Stage
-from simstack.fem.solve import solve_problem
 from simstack.io.paraview import write_paraview_template
 from simstack.io.write import (
     build_tag_fields,
@@ -20,6 +19,7 @@ from simstack.io.write import (
 )
 from simstack.mesh.import_dolfinx import model_to_mesh
 from simstack.mesh.mesh_build import GmshSession, build_gmsh_model
+from simstack.workflow.engine import run_workflow
 
 
 def _write_gmsh_msh(out_root: Path) -> str:
@@ -74,6 +74,8 @@ class MeshStage(Stage):
 
     def run(self, ctx: RunContext) -> None:
         step_path = ctx.require("cad_step_path")
+        geometry_dim = int(ctx.config.geometry.dimension)
+
         mesh_msh_path = None
         tag_map = None
         mesh_stats = None
@@ -81,7 +83,12 @@ class MeshStage(Stage):
 
         with GmshSession():
             if ctx.rank == 0:
-                gmsh_result = build_gmsh_model(step_path, ctx.config.tags, ctx.config.meshing)
+                gmsh_result = build_gmsh_model(
+                    step_path,
+                    ctx.config.tags,
+                    ctx.config.meshing,
+                    geometry_dim=geometry_dim,
+                )
                 gmsh_model = gmsh_result.model
                 tag_map = gmsh_result.tag_result.tag_map
                 mesh_stats = gmsh_result.mesh_stats if gmsh_result.mesh_stats else {}
@@ -91,7 +98,7 @@ class MeshStage(Stage):
                 gmsh_model if ctx.rank == 0 else None,
                 ctx.comm,
                 rank=0,
-                gdim=3,
+                gdim=geometry_dim,
             )
 
         mesh_msh_path = ctx.comm.bcast(mesh_msh_path, root=0)
@@ -107,6 +114,7 @@ class MeshStage(Stage):
         ctx.set("tag_map", tag_map)
         ctx.set("mesh_stats", mesh_stats)
         ctx.set("mesh_msh_path", mesh_msh_path)
+        ctx.set("geometry_dim", geometry_dim)
 
     def outputs(self, ctx: RunContext) -> Dict[str, Any]:
         tag_map = ctx.get("tag_map", {})
@@ -116,6 +124,7 @@ class MeshStage(Stage):
             "mesh_msh": ctx.get("mesh_msh_path"),
             "cell_tag_count": cell_count,
             "facet_tag_count": facet_count,
+            "geometry_dim": ctx.get("geometry_dim"),
         }
 
 
@@ -131,6 +140,8 @@ class SolveStage(Stage):
             "materials": cfg.get("materials", {}),
             "bcs": cfg.get("bcs", {}),
             "solver": cfg.get("solver", {}),
+            "workflow": cfg.get("workflow", {}),
+            "units": cfg.get("units", {}),
             "outputs": {
                 "format": cfg.get("outputs", {}).get("format"),
                 "write_tag_fields": cfg.get("outputs", {}).get("write_tag_fields"),
@@ -143,14 +154,11 @@ class SolveStage(Stage):
         facet_tags = ctx.require("facet_tags")
         tag_map = ctx.require("tag_map")
 
-        solve_artifact = solve_problem(
+        solve_artifact = run_workflow(
             mesh,
             cell_tags,
             facet_tags,
-            ctx.config.physics,
-            ctx.config.bcs,
-            ctx.config.materials,
-            ctx.config.solver,
+            ctx.config,
             tag_map,
         )
 
@@ -216,6 +224,7 @@ class PostStage(Stage):
         tag_map_path = None
         tag_legend_path = None
         mesh_stats_path = None
+        tag_debug_report_path = None
         if ctx.rank == 0:
             tag_map_file = mesh_dir / "tag_map.json"
             tag_map_file.write_text(json.dumps(tag_map, indent=2, sort_keys=True))
@@ -228,9 +237,16 @@ class PostStage(Stage):
                 stats_file.write_text(json.dumps(mesh_stats, indent=2, sort_keys=True))
                 mesh_stats_path = str(stats_file)
 
+                tag_debug = mesh_stats.get("tag_debug")
+                if isinstance(tag_debug, dict):
+                    debug_file = mesh_dir / "tag_debug_report.json"
+                    debug_file.write_text(json.dumps(tag_debug, indent=2, sort_keys=True))
+                    tag_debug_report_path = str(debug_file)
+
         tag_map_path = ctx.comm.bcast(tag_map_path, root=0)
         tag_legend_path = ctx.comm.bcast(tag_legend_path, root=0)
         mesh_stats_path = ctx.comm.bcast(mesh_stats_path, root=0)
+        tag_debug_report_path = ctx.comm.bcast(tag_debug_report_path, root=0)
 
         paraview_state_path = None
         paraview_macro_path = None
@@ -256,6 +272,7 @@ class PostStage(Stage):
         ctx.set("tag_map_path", tag_map_path)
         ctx.set("tag_legend_path", tag_legend_path)
         ctx.set("mesh_stats_path", mesh_stats_path)
+        ctx.set("tag_debug_report_path", tag_debug_report_path)
         ctx.set("paraview_state_path", paraview_state_path)
         ctx.set("paraview_macro_path", paraview_macro_path)
 
@@ -266,5 +283,6 @@ class PostStage(Stage):
             "tag_map": ctx.get("tag_map_path"),
             "tag_legend": ctx.get("tag_legend_path"),
             "mesh_stats": ctx.get("mesh_stats_path"),
+            "tag_debug_report": ctx.get("tag_debug_report_path"),
             "paraview_state": ctx.get("paraview_state_path"),
         }

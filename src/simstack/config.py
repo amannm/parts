@@ -1,19 +1,12 @@
-"""Configuration schema and loader for SimStack."""
+"""Configuration schema and loaders for SimStack v2."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple, Annotated
 
 import yaml
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    TypeAdapter,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BCSpec(BaseModel):
@@ -75,12 +68,30 @@ class PhaseChangeParameters(BaseModel):
     transition_temp: float = 373.15
 
 
+class MixedSourceSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str
+    value: float
+
+
+class MixedSourcesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    surface: List[MixedSourceSpec] = Field(default_factory=list)
+    line: List[MixedSourceSpec] = Field(default_factory=list)
+
+
 class PoissonParameters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     degree: int = 1
     kappa: float = 1.0
     source: float = 0.0
+    sources: MixedSourcesConfig = Field(default_factory=MixedSourcesConfig)
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
 
 class HeatParameters(BaseModel):
@@ -89,6 +100,10 @@ class HeatParameters(BaseModel):
     degree: int = 1
     kappa: float = 1.0
     source: float = 0.0
+    sources: MixedSourcesConfig = Field(default_factory=MixedSourcesConfig)
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
 
 class HeatTransientParameters(BaseModel):
@@ -99,12 +114,17 @@ class HeatTransientParameters(BaseModel):
     rho: float = 1.0
     cp: float = 1.0
     source: float = 0.0
+    sources: MixedSourcesConfig = Field(default_factory=MixedSourcesConfig)
+    source_field: Any | None = None
     initial: float | None = None
     T0: float | None = None
     time: TimeParameters | None = None
     phase_change: PhaseChangeParameters | None = None
     targets: List[TargetSpec] = Field(default_factory=list)
     bcs: List[BCSpec] | None = None
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
     @field_validator("targets", mode="before")
     @classmethod
@@ -123,10 +143,14 @@ class ElectricACParameters(BaseModel):
     sigma: float | None = None
     conductivity: float | None = None
     source: float = 0.0
+    sources: MixedSourcesConfig = Field(default_factory=MixedSourcesConfig)
     include_joule_heat: bool = True
     joule_scale: float = 1.0
     derived: List[str] = Field(default_factory=list)
     bcs: List[BCSpec] | None = None
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
 
 class MagnetostaticTorqueParameters(BaseModel):
@@ -152,6 +176,9 @@ class MagnetostaticParameters(BaseModel):
     include_H: bool = True
     derived: List[str] = Field(default_factory=list)
     torque: MagnetostaticTorqueParameters | None = None
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
 
 class ElasticityParameters(BaseModel):
@@ -164,6 +191,9 @@ class ElasticityParameters(BaseModel):
     nu: float | None = None
     body_force: float | List[float] | None = None
     derived: List[str] = Field(default_factory=list)
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_lame(self) -> "ElasticityParameters":
@@ -182,6 +212,9 @@ class ElectroThermalParameters(BaseModel):
     time: TimeParameters | None = None
     phase_change: PhaseChangeParameters | None = None
     targets: List[TargetSpec] = Field(default_factory=list)
+    runtime_dimension: int | None = None
+    runtime_coordinate_system: Literal["cartesian", "axisymmetric"] | None = None
+    runtime_material_variables: Dict[str, float] = Field(default_factory=dict)
 
     @field_validator("targets", mode="before")
     @classmethod
@@ -191,6 +224,18 @@ class ElectroThermalParameters(BaseModel):
         if isinstance(value, dict):
             return [value]
         return value
+
+
+PhysicsParameters = (
+    PoissonParameters
+    | HeatParameters
+    | HeatTransientParameters
+    | ElasticityParameters
+    | ElectricACParameters
+    | MagnetostaticParameters
+    | ElectroThermalParameters
+    | Dict[str, Any]
+)
 
 
 _PHYSICS_PARAMETER_MODELS: Dict[str, type[BaseModel]] = {}
@@ -207,12 +252,52 @@ def get_physics_parameter_model(model_name: str) -> type[BaseModel] | None:
     return _PHYSICS_PARAMETER_MODELS.get(model_name)
 
 
+class PhysicsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+    parameters: PhysicsParameters = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "PhysicsConfig":
+        params_model = get_physics_parameter_model(self.model)
+        raw = self.parameters
+
+        if params_model is None:
+            if isinstance(raw, BaseModel):
+                self.parameters = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
+            elif not isinstance(raw, dict):
+                raise TypeError("physics.parameters must be an object")
+            return self
+
+        if isinstance(raw, BaseModel):
+            if isinstance(raw, params_model):
+                return self
+            raw = raw.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+        if not isinstance(raw, dict):
+            raise TypeError("physics.parameters must be an object")
+
+        self.parameters = params_model.model_validate(raw)
+        return self
+
+    def parameters_dict(self) -> Dict[str, Any]:
+        raw = self.parameters
+        if isinstance(raw, BaseModel):
+            return raw.model_dump(mode="json", by_alias=True, exclude_none=True)
+        if isinstance(raw, dict):
+            return raw
+        raise TypeError("physics.parameters must be a dict or pydantic model")
+
+
 class GeometryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     builder: str
     params: Dict[str, Any] = Field(default_factory=dict)
     units: Optional[str] = None
+    dimension: Literal[2, 3] = 3
+    coordinate_system: Literal["cartesian", "axisymmetric"] = "cartesian"
 
     @model_validator(mode="after")
     def _validate_builder_params(self) -> "GeometryConfig":
@@ -229,21 +314,184 @@ class GeometryConfig(BaseModel):
         self.params = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
         return self
 
+    @model_validator(mode="after")
+    def _validate_coordinate_system(self) -> "GeometryConfig":
+        if self.coordinate_system == "axisymmetric" and self.dimension != 2:
+            raise ValueError("axisymmetric coordinate system requires geometry.dimension = 2")
+        return self
 
-class TagRule(BaseModel):
+
+class FacetPlaneAtMinRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["PlaneAtMin"]
+    name: str
+    axis: Literal["x", "y", "z", 0, 1, 2]
+    tol: float | None = None
+
+
+class FacetPlaneAtMaxRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["PlaneAtMax"]
+    name: str
+    axis: Literal["x", "y", "z", 0, 1, 2]
+    tol: float | None = None
+
+
+class FacetBBoxPatchRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["BBoxPatch"]
+    name: str
+    xmin: float | None = None
+    xmax: float | None = None
+    ymin: float | None = None
+    ymax: float | None = None
+    zmin: float | None = None
+    zmax: float | None = None
+
+
+class FacetNormalApproxRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["NormalApprox"]
+    name: str
+    nx: float
+    ny: float
+    nz: float
+    tol: float = 0.05
+    allow_flip: bool = True
+
+
+class FacetByNameRegexRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ByNameRegex"]
+    name: str
+    pattern: str
+
+
+class FacetByAreaRangeRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ByAreaRange"]
+    name: str
+    min_area: float | None = None
+    max_area: float | None = None
+
+
+class FacetAdjacentToCellTagRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["AdjacentToCellTag"]
+    name: str
+    cell_tag: str
+
+
+FacetRule = Annotated[
+    FacetPlaneAtMinRule
+    | FacetPlaneAtMaxRule
+    | FacetBBoxPatchRule
+    | FacetNormalApproxRule
+    | FacetByNameRegexRule
+    | FacetByAreaRangeRule
+    | FacetAdjacentToCellTagRule,
+    Field(discriminator="type"),
+]
+
+
+class CellAllVolumesRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["AllVolumes"]
+    name: str
+
+
+class CellBBoxPatchRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["BBoxPatch"]
+    name: str
+    xmin: float | None = None
+    xmax: float | None = None
+    ymin: float | None = None
+    ymax: float | None = None
+    zmin: float | None = None
+    zmax: float | None = None
+
+
+class CellByNameRegexRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ByNameRegex"]
+    name: str
+    pattern: str
+
+
+class CellByVolumeRangeRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ByVolumeRange"]
+    name: str
+    min_volume: float | None = None
+    max_volume: float | None = None
+
+
+class CellConnectedToFacetTagRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ConnectedToFacetTag"]
+    name: str
+    facet_tag: str
+
+
+CellRule = Annotated[
+    CellAllVolumesRule
+    | CellBBoxPatchRule
+    | CellByNameRegexRule
+    | CellByVolumeRangeRule
+    | CellConnectedToFacetTagRule,
+    Field(discriminator="type"),
+]
+
+
+class TagComposite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    rule: str
-    params: Dict[str, Any] = Field(default_factory=dict)
+    entity: Literal["facets", "cells"]
+    op: Literal["union", "intersection", "difference"]
+    inputs: List[str]
+
+    @field_validator("inputs")
+    @classmethod
+    def _validate_inputs(cls, value: List[str]) -> List[str]:
+        if len(value) < 2:
+            raise ValueError("composite inputs must include at least two tags")
+        return value
 
 
 class TagsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    facets: List[TagRule] = Field(default_factory=list)
-    cells: List[TagRule] = Field(default_factory=list)
+    facets: List[FacetRule] = Field(default_factory=list)
+    cells: List[CellRule] = Field(default_factory=list)
+    composites: List[TagComposite] = Field(default_factory=list)
     id_overrides: Dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_uniques(self) -> "TagsConfig":
+        facet_names = [rule.name for rule in self.facets]
+        cell_names = [rule.name for rule in self.cells]
+        if len(set(facet_names)) != len(facet_names):
+            raise ValueError("Duplicate facet tag names are not allowed")
+        if len(set(cell_names)) != len(cell_names):
+            raise ValueError("Duplicate cell tag names are not allowed")
+        composite_names = [rule.name for rule in self.composites]
+        if len(set(composite_names)) != len(composite_names):
+            raise ValueError("Duplicate composite tag names are not allowed")
+        return self
 
 
 class MeshingQAConfig(BaseModel):
@@ -255,15 +503,80 @@ class MeshingQAConfig(BaseModel):
     allow_overlaps: bool = False
 
 
+class CurvatureRefineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    min_size: float | None = None
+    max_size: float | None = None
+
+
+class DistanceRefineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tags: List[str]
+    size_min: float
+    size_max: float
+    dist_min: float
+    dist_max: float
+
+
+class BoundaryLayerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tags: List[str]
+    first_layer: float
+    growth_rate: float = 1.2
+    n_layers: int = 5
+
+
 class MeshingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     global_size: Optional[float] = None
-    curvature_refine: bool = True
-    distance_refine: List[Dict[str, Any]] = Field(default_factory=list)
-    boundary_layers: List[Dict[str, Any]] = Field(default_factory=list)
+    curvature_refine: CurvatureRefineConfig = Field(default_factory=CurvatureRefineConfig)
+    distance_refine: List[DistanceRefineConfig] = Field(default_factory=list)
+    boundary_layers: List[BoundaryLayerConfig] = Field(default_factory=list)
     gmsh_options: Dict[str, Any] = Field(default_factory=dict)
     qa: MeshingQAConfig = Field(default_factory=MeshingQAConfig)
+
+
+class MaterialConstantModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: Literal["constant"]
+    value: float
+
+
+class MaterialPolynomialModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: Literal["polynomial"]
+    variable: Literal["T", "f"]
+    coefficients: List[float]
+    reference: float = 0.0
+
+
+class MaterialTableModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: Literal["table"]
+    variable: Literal["T", "f"]
+    points: List[Tuple[float, float]]
+    interpolation: Literal["linear"] = "linear"
+
+    @field_validator("points")
+    @classmethod
+    def _validate_points(cls, value: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        if len(value) < 2:
+            raise ValueError("table model requires at least two points")
+        return value
+
+
+MaterialModel = Annotated[
+    MaterialConstantModel | MaterialPolynomialModel | MaterialTableModel,
+    Field(discriminator="model"),
+]
 
 
 class MaterialsConfig(BaseModel):
@@ -272,144 +585,71 @@ class MaterialsConfig(BaseModel):
     by_tag: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
-class _PhysicsConfigBase(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    model: str
-    parameters: Any = Field(default_factory=dict)
-
-    def parameters_dict(self) -> Dict[str, Any]:
-        raw = self.parameters
-        if isinstance(raw, BaseModel):
-            return raw.model_dump(mode="json", by_alias=True, exclude_none=True)
-        if isinstance(raw, dict):
-            return raw
-        raise TypeError("physics.parameters must be a dict or pydantic model")
-
-
-class PoissonPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["poisson"]
-    parameters: PoissonParameters = Field(default_factory=PoissonParameters)
-
-
-class HeatPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["heat"]
-    parameters: HeatParameters = Field(default_factory=HeatParameters)
-
-
-class HeatTransientPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["heat_transient"]
-    parameters: HeatTransientParameters = Field(default_factory=HeatTransientParameters)
-
-
-class ElasticityPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["elasticity"]
-    parameters: ElasticityParameters
-
-
-class ElectricACPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["electric_ac"]
-    parameters: ElectricACParameters = Field(default_factory=ElectricACParameters)
-
-
-class MagnetostaticPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["magnetostatic"]
-    parameters: MagnetostaticParameters = Field(default_factory=MagnetostaticParameters)
-
-
-class ElectroThermalPhysicsConfig(_PhysicsConfigBase):
-    model: Literal["electro_thermal"]
-    parameters: ElectroThermalParameters = Field(default_factory=ElectroThermalParameters)
-
-
-BuiltinPhysicsConfig = Annotated[
-    PoissonPhysicsConfig
-    | HeatPhysicsConfig
-    | HeatTransientPhysicsConfig
-    | ElasticityPhysicsConfig
-    | ElectricACPhysicsConfig
-    | MagnetostaticPhysicsConfig
-    | ElectroThermalPhysicsConfig,
-    Field(discriminator="model"),
-]
-
-
-_BUILTIN_PHYSICS_MODELS = {
-    "poisson",
-    "heat",
-    "heat_transient",
-    "elasticity",
-    "electric_ac",
-    "magnetostatic",
-    "electro_thermal",
-}
-_BUILTIN_PHYSICS_ADAPTER = TypeAdapter(BuiltinPhysicsConfig)
-
-
-class PluginPhysicsConfig(_PhysicsConfigBase):
-    model: str
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _validate_plugin_parameters(self) -> "PluginPhysicsConfig":
-        params_model = get_physics_parameter_model(self.model)
-        if params_model is not None and self.model not in _BUILTIN_PHYSICS_MODELS:
-            validated = params_model.model_validate(self.parameters)
-            self.parameters = validated.model_dump(mode="json", by_alias=True, exclude_none=True)
-        return self
-
-
-class PhysicsConfig(BaseModel):
-    """Physics config wrapper around discriminated builtin configs + plugin fallback."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    spec: BuiltinPhysicsConfig | PluginPhysicsConfig
-
-    @model_validator(mode="before")
-    @classmethod
-    def _coerce_spec(cls, value: Any) -> Any:
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, dict):
-            raise TypeError("physics config must be an object")
-        if "spec" in value:
-            return value
-
-        model_name = value.get("model")
-        if not isinstance(model_name, str) or not model_name:
-            raise ValueError("physics.model must be a non-empty string")
-
-        if model_name in _BUILTIN_PHYSICS_MODELS:
-            spec = _BUILTIN_PHYSICS_ADAPTER.validate_python(value)
-        else:
-            spec = PluginPhysicsConfig.model_validate(value)
-
-        return {"spec": spec}
-
-    @property
-    def model(self) -> str:
-        return self.spec.model
-
-    @property
-    def parameters(self) -> Any:
-        return self.spec.parameters
-
-    def parameters_dict(self) -> Dict[str, Any]:
-        return self.spec.parameters_dict()
-
-    def model_dump_external(self) -> Dict[str, Any]:
-        return {
-            "model": self.model,
-            "parameters": self.parameters_dict(),
-        }
-
-
 class SolverConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preset: str = "linear_default"
     options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowStageConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    physics: PhysicsConfig
+    bcs: BCsConfig = Field(default_factory=BCsConfig)
+
+
+class CouplingSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_stage: str
+    field: str
+    to_stage: str
+    target: str
+    mode: Literal["field", "avg"] = "field"
+    reduction: Literal["avg", "min", "max"] = "avg"
+
+
+class WorkflowSolverConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scheme: Literal["fixed_point"] = "fixed_point"
+    max_iters: int = 20
+    rtol: float = 1e-4
+    atol: float = 1e-8
+    relaxation: float = 0.7
+
+
+class WorkflowConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["single", "coupled"] = "single"
+    stages: List[WorkflowStageConfig] = Field(default_factory=list)
+    couplings: List[CouplingSpec] = Field(default_factory=list)
+    solver: WorkflowSolverConfig = Field(default_factory=WorkflowSolverConfig)
+
+    @model_validator(mode="after")
+    def _validate_consistency(self) -> "WorkflowConfig":
+        stage_ids = [stage.id for stage in self.stages]
+        if len(set(stage_ids)) != len(stage_ids):
+            raise ValueError("workflow stage IDs must be unique")
+        if self.type == "coupled" and len(self.stages) < 2:
+            raise ValueError("workflow.type='coupled' requires at least two stages")
+        known = set(stage_ids)
+        for coupling in self.couplings:
+            if known and coupling.from_stage not in known:
+                raise ValueError(f"workflow coupling references unknown from_stage: {coupling.from_stage}")
+            if known and coupling.to_stage not in known:
+                raise ValueError(f"workflow coupling references unknown to_stage: {coupling.to_stage}")
+        return self
+
+
+class UnitsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    internal_system: Literal["SI"] = "SI"
+    inputs: Dict[str, str] = Field(default_factory=dict)
 
 
 class OutputsConfig(BaseModel):
@@ -436,8 +676,47 @@ class SimStackConfig(BaseModel):
     physics: PhysicsConfig
     bcs: BCsConfig = Field(default_factory=BCsConfig)
     solver: SolverConfig = Field(default_factory=SolverConfig)
+    workflow: WorkflowConfig = Field(default_factory=WorkflowConfig)
+    units: UnitsConfig = Field(default_factory=UnitsConfig)
     outputs: OutputsConfig = Field(default_factory=OutputsConfig)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_axisymmetric_support(self) -> "SimStackConfig":
+        if self.geometry.coordinate_system != "axisymmetric":
+            return self
+
+        scalar_models = {"poisson", "heat", "heat_transient", "electric_ac"}
+        if self.workflow.type == "single":
+            if self.physics.model not in scalar_models:
+                raise ValueError("axisymmetric mode currently supports scalar physics only")
+            return self
+
+        for stage in self.workflow.stages:
+            if stage.physics.model not in scalar_models:
+                raise ValueError("axisymmetric mode currently supports scalar workflow stages only")
+        return self
+
+
+class SweepObjectiveConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    goal: Literal["min", "max"] = "min"
+
+
+class SweepConstraintConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    op: Literal["<=", ">=", "<", ">", "=="]
+    value: float
+
+
+class SweepParallelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workers: int | None = None
 
 
 class SweepParameterConfig(BaseModel):
@@ -445,6 +724,7 @@ class SweepParameterConfig(BaseModel):
 
     path: str | List[str]
     values: List[Any] = Field(default_factory=list)
+    bounds: Tuple[float, float] | None = None
     name: Optional[str] = None
     labels: Optional[List[str]] = None
     transform: Optional[Literal["deg2rad", "rad2deg"]] = None
@@ -452,22 +732,15 @@ class SweepParameterConfig(BaseModel):
     offset: Optional[float] = None
     fmt: Optional[str] = None
 
-    @field_validator("values")
-    @classmethod
-    def _validate_values(cls, value: List[Any]) -> List[Any]:
-        if not value:
-            raise ValueError("sweep parameter values must be non-empty")
-        return value
-
-    @field_validator("labels")
-    @classmethod
-    def _validate_labels(cls, value: Optional[List[str]], info) -> Optional[List[str]]:
-        if value is None:
-            return value
-        values = info.data.get("values") or []
-        if len(value) != len(values):
+    @model_validator(mode="after")
+    def _validate_parameter(self) -> "SweepParameterConfig":
+        if not self.values and self.bounds is None:
+            raise ValueError("sweep parameter requires either values or bounds")
+        if self.labels is not None and self.values and len(self.labels) != len(self.values):
             raise ValueError("sweep parameter labels must match values length")
-        return value
+        if self.bounds is not None and self.bounds[0] >= self.bounds[1]:
+            raise ValueError("sweep parameter bounds must satisfy min < max")
+        return self
 
 
 class SweepConfig(BaseModel):
@@ -477,14 +750,26 @@ class SweepConfig(BaseModel):
     parameters: List[SweepParameterConfig] = Field(default_factory=list)
     name: Optional[str] = None
     output_directory: str = "out/sweeps"
-    mode: Literal["cartesian", "zip"] = "cartesian"
+    mode: Literal["cartesian", "zip", "lhs", "sobol", "optuna"] = "cartesian"
+    samples: int | None = None
+    seed: int = 42
+    parallel: SweepParallelConfig = Field(default_factory=SweepParallelConfig)
+    objective: SweepObjectiveConfig | None = None
+    constraints: List[SweepConstraintConfig] = Field(default_factory=list)
 
-    @field_validator("parameters")
-    @classmethod
-    def _validate_parameters(cls, value: List[SweepParameterConfig]) -> List[SweepParameterConfig]:
-        if not value:
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "SweepConfig":
+        if not self.parameters:
             raise ValueError("sweep requires at least one parameter")
-        return value
+        if self.mode in {"lhs", "sobol", "optuna"}:
+            for param in self.parameters:
+                if param.bounds is None:
+                    raise ValueError(f"sweep mode '{self.mode}' requires bounds for parameter '{param.name or param.path}'")
+            if self.samples is None:
+                raise ValueError(f"sweep mode '{self.mode}' requires samples")
+        if self.mode == "optuna" and self.objective is None:
+            raise ValueError("optuna sweep requires objective")
+        return self
 
 
 def _register_builtin_parameter_models() -> None:
@@ -507,7 +792,12 @@ def load_config(path: str | Path) -> SimStackConfig:
     data = yaml.safe_load(path.read_text())
     if data is None:
         raise ValueError(f"Config is empty: {path}")
-    return SimStackConfig.model_validate(data)
+    config = SimStackConfig.model_validate(data)
+
+    from simstack.fem.units import normalize_config_units, validate_config_units
+
+    validate_config_units(config_to_dict(config))
+    return normalize_config_units(config)
 
 
 def load_sweep_config(path: str | Path) -> SweepConfig:
@@ -522,5 +812,8 @@ def load_sweep_config(path: str | Path) -> SweepConfig:
 
 def config_to_dict(config: SimStackConfig) -> Dict[str, Any]:
     data = config.model_dump(mode="json", by_alias=True, exclude_none=True)
-    data["physics"] = config.physics.model_dump_external()
+    data["physics"]["parameters"] = config.physics.parameters_dict()
+    if "workflow" in data and config.workflow.stages:
+        for idx, stage in enumerate(config.workflow.stages):
+            data["workflow"]["stages"][idx]["physics"]["parameters"] = stage.physics.parameters_dict()
     return data

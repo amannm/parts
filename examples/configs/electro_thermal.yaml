@@ -6,20 +6,20 @@ geometry:
     height: 0.2
     hole_radius: 0.005
   units: m
+  dimension: 3
+  coordinate_system: cartesian
 
 tags:
   facets:
-    - name: z_min
-      rule: PlaneAtMin
-      params:
-        axis: z
-    - name: z_max
-      rule: PlaneAtMax
-      params:
-        axis: z
+    - type: PlaneAtMin
+      name: z_min
+      axis: z
+    - type: PlaneAtMax
+      name: z_max
+      axis: z
   cells:
-    - name: domain
-      rule: AllVolumes
+    - type: AllVolumes
+      name: domain
 
 meshing:
   global_size: 0.01
@@ -53,17 +53,73 @@ physics:
       t_end: 10.0
       initial: 293.15
     phase_change:
-      latent_heat: 2.26e6
+      latent_heat: 2260000.0
       delta_T: 1.0
       transition_temp: 373.15
 
 materials:
   by_tag:
     domain:
-      sigma: 5.8e7
+      sigma:
+        model: polynomial
+        variable: T
+        reference: 293.15
+        coefficients: [58000000.0, -10000.0]
       kappa: 0.6
       rho: 1000.0
       cp: 4182.0
+
+workflow:
+  type: coupled
+  stages:
+    - id: electric
+      physics:
+        model: electric_ac
+        parameters:
+          include_joule_heat: true
+      bcs:
+        items:
+          - type: dirichlet
+            tag: z_min
+            value: 0.0
+          - type: dirichlet
+            tag: z_max
+            value: 1.0
+    - id: thermal
+      physics:
+        model: heat_transient
+        parameters:
+          time:
+            dt: 0.1
+            t_end: 10.0
+            initial: 293.15
+          targets:
+            - name: warmup
+              tag: domain
+              temperature: 333.15
+              mode: avg
+              direction: above
+      bcs:
+        items:
+          - type: robin
+            tag: z_max
+            value: 293.15
+            alpha: 10.0
+  couplings:
+    - from_stage: electric
+      field: joule_heat
+      to_stage: thermal
+      target: source_field
+      mode: field
+    - from_stage: thermal
+      field: T
+      to_stage: electric
+      target: runtime_material_variables.T
+      mode: avg
+      reduction: avg
+
+units:
+  internal_system: SI
 
 outputs:
   directory: out

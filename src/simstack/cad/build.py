@@ -11,6 +11,7 @@ import sys
 from typing import Any, Callable, Dict, Iterable
 
 from pydantic import BaseModel
+import yaml
 
 from simstack.config import GeometryConfig
 from simstack.core.artifacts import CadArtifact
@@ -29,6 +30,7 @@ class BuilderRegistration:
 _BUILDERS: Dict[str, BuilderRegistration] = {}
 _PLUGINS_LOADED = False
 _LIBRARY_DIR = Path(__file__).resolve().parents[3] / "library"
+_CATALOG_PATH = _LIBRARY_DIR / "catalog.yaml"
 
 
 def _entry_points(group: str) -> Iterable[metadata.EntryPoint]:
@@ -80,6 +82,11 @@ def get_builder_params_model(name: str) -> type[BaseModel] | None:
     if registration is None:
         return None
     return registration.params_model
+
+
+def list_builders() -> list[str]:
+    _load_builder_plugins()
+    return sorted(_BUILDERS.keys())
 
 
 def _import_library_module(module_name: str) -> Any:
@@ -192,3 +199,77 @@ def build_geometry(geometry: GeometryConfig, out_dir: str | Path | None = None) 
         units=geometry.units,
         cad_provenance={"builder": geometry.builder, "params": params},
     )
+
+
+def load_part_catalog(path: str | Path | None = None) -> list[dict[str, Any]]:
+    catalog_path = Path(path) if path else _CATALOG_PATH
+    if not catalog_path.exists():
+        return []
+    data = yaml.safe_load(catalog_path.read_text())
+    if not isinstance(data, dict):
+        return []
+    parts = data.get("parts")
+    if not isinstance(parts, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for entry in parts:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        builder = entry.get("builder")
+        if not name or not builder:
+            continue
+        out.append(entry)
+    return out
+
+
+def get_part_catalog_entry(name: str, path: str | Path | None = None) -> dict[str, Any] | None:
+    for entry in load_part_catalog(path):
+        if str(entry.get("name")) == name:
+            return entry
+    return None
+
+
+def scaffold_part_config(name: str, path: str | Path | None = None) -> dict[str, Any]:
+    entry = get_part_catalog_entry(name, path)
+    if entry is None:
+        raise KeyError(f"Unknown part '{name}'")
+
+    geometry = {
+        "builder": entry["builder"],
+        "params": entry.get("default_params", {}),
+        "units": entry.get("units_default", "m"),
+        "dimension": 3,
+        "coordinate_system": "cartesian",
+    }
+
+    return {
+        "geometry": geometry,
+        "tags": {
+            "facets": [
+                {"type": "PlaneAtMin", "name": "x_min", "axis": "x"},
+                {"type": "PlaneAtMax", "name": "x_max", "axis": "x"},
+            ],
+            "cells": [
+                {"type": "AllVolumes", "name": "domain"},
+            ],
+        },
+        "meshing": {"global_size": 1.0},
+        "materials": {"by_tag": {"domain": {"kappa": 1.0}}},
+        "physics": {"model": "poisson", "parameters": {"kappa": 1.0, "source": 0.0}},
+        "bcs": {
+            "items": [
+                {"type": "dirichlet", "tag": "x_min", "value": 0.0},
+                {"type": "dirichlet", "tag": "x_max", "value": 1.0},
+            ]
+        },
+        "workflow": {"type": "single"},
+        "units": {"internal_system": "SI"},
+        "outputs": {"directory": "out", "format": "vtx"},
+        "metadata": {
+            "part": {
+                "name": entry.get("name"),
+                "description": entry.get("description"),
+            }
+        },
+    }

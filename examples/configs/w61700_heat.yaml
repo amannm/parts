@@ -6,20 +6,20 @@ geometry:
     width: 3.0
     include_seals: true
   units: mm
+  dimension: 3
+  coordinate_system: cartesian
 
 tags:
   facets:
-    - name: left
-      rule: PlaneAtMin
-      params:
-        axis: x
-    - name: right
-      rule: PlaneAtMax
-      params:
-        axis: x
+    - type: PlaneAtMin
+      name: left
+      axis: x
+    - type: PlaneAtMax
+      name: right
+      axis: x
   cells:
-    - name: domain
-      rule: AllVolumes
+    - type: AllVolumes
+      name: domain
 
 meshing:
   global_size: 0.4
@@ -45,6 +45,12 @@ materials:
   by_tag:
     domain:
       kappa: 15.0
+
+workflow:
+  type: single
+
+units:
+  internal_system: SI
 
 outputs:
   directory: out

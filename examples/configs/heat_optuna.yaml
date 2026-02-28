@@ -1,0 +1,18 @@
+base: examples/configs/heat.yaml
+name: heat_opt
+output_directory: out/sweeps
+mode: optuna
+samples: 8
+seed: 42
+parameters:
+  - name: kappa
+    path: physics.parameters.kappa
+    bounds: [1.0, 25.0]
+  - name: source
+    path: physics.parameters.source
+    bounds: [0.0, 10.0]
+objective:
+  path: iterations
+  goal: min
+parallel:
+  workers: 1

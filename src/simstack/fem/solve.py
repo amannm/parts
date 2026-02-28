@@ -55,6 +55,38 @@ def _ensure_bcs_config(items: Any) -> BCsConfig:
     raise TypeError("BCs must be a BCsConfig or list of BC spec dicts")
 
 
+def _runtime_material_variables(params: Dict[str, Any]) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    raw = params.get("runtime_material_variables")
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if isinstance(value, (int, float)):
+                out[str(key)] = float(value)
+    temp = params.get("temperature")
+    if isinstance(temp, (int, float)):
+        out.setdefault("T", float(temp))
+    freq = params.get("frequency")
+    if isinstance(freq, (int, float)):
+        out.setdefault("f", float(freq))
+    return out
+
+
+def _is_axisymmetric(params: Dict[str, Any]) -> bool:
+    return (
+        str(params.get("runtime_coordinate_system", "cartesian")) == "axisymmetric"
+        and int(params.get("runtime_dimension", 3)) == 2
+    )
+
+
+def _axisymmetric_weight(mesh: Any, params: Dict[str, Any]) -> Any | None:
+    if not _is_axisymmetric(params):
+        return None
+    from ufl import SpatialCoordinate
+
+    x = SpatialCoordinate(mesh)
+    return 2.0 * math.pi * x[0]
+
+
 def _parse_time_config(params: Dict[str, Any]) -> Tuple[float, float, float, int]:
     time_cfg = params.get("time", {}) if isinstance(params, dict) else {}
     t0 = float(time_cfg.get("t0", time_cfg.get("start", 0.0)))
@@ -224,6 +256,8 @@ def solve_linear_problem(
     from ufl import Measure
 
     params = _physics_params(physics)
+    params["runtime_tag_map_facets"] = tag_map.get("facets", {})
+    params["runtime_tag_map_cells"] = tag_map.get("cells", {})
 
     model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
     model = model_factory()
@@ -231,7 +265,7 @@ def solve_linear_problem(
     field_spec = model.declare_fields(params)
     spaces = model.build_spaces(mesh, field_spec, params)
 
-    matdb = build_matdb(materials, tag_map)
+    matdb = build_matdb(materials, tag_map, variables=_runtime_material_variables(params))
     coeffs = model.build_coefficients(mesh, cell_tags, matdb, params)
     measures = {
         "dx": Measure("dx", domain=mesh, subdomain_data=cell_tags),
@@ -242,6 +276,7 @@ def solve_linear_problem(
         "bcs": _dump_bcs(bcs),
         "tag_map": tag_map,
         "ds": measures["ds"],
+        "params": params,
     }
     dirichlet_bcs, a_terms, L_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
 
@@ -251,14 +286,46 @@ def solve_linear_problem(
     for term in L_terms:
         L += term
 
-    options = _merge_solver_options(solver)
-    problem = petsc.LinearProblem(a, L, bcs=dirichlet_bcs, petsc_options=options)
-    uh = problem.solve()
+    weight = _axisymmetric_weight(mesh, params)
+    if weight is not None and physics.model in {"poisson", "heat", "heat_transient", "electric_ac"}:
+        a = weight * a
+        L = weight * L
 
-    solver_info = {
-        "converged_reason": problem.solver.getConvergedReason(),
-        "iterations": problem.solver.getIterationNumber(),
-    }
+    options = _merge_solver_options(solver)
+
+    nonlinear_cfg = params.get("nonlinear")
+    if isinstance(nonlinear_cfg, dict) and bool(nonlinear_cfg.get("enabled", False)):
+        # Lightweight nonlinear path: repeated assembly/solve with convergence on field delta.
+        max_iters = int(nonlinear_cfg.get("max_iters", 15))
+        tol = float(nonlinear_cfg.get("tol", 1e-6))
+        last = None
+        uh = None
+        iter_count = 0
+        for i in range(1, max_iters + 1):
+            problem = petsc.LinearProblem(a, L, bcs=dirichlet_bcs, petsc_options=options)
+            uh = problem.solve()
+            iter_count = i
+            if last is not None:
+                diff = uh.x.array - last
+                denom = float((last * last).sum())
+                delta = math.sqrt(float((diff * diff).sum()) / max(denom, 1e-30))
+                if delta <= tol:
+                    break
+            last = uh.x.array.copy()
+
+        solver_info = {
+            "nonlinear": True,
+            "iterations": iter_count,
+            "converged_reason": 1 if iter_count < max_iters else 0,
+        }
+    else:
+        problem = petsc.LinearProblem(a, L, bcs=dirichlet_bcs, petsc_options=options)
+        uh = problem.solve()
+        solver_info = {
+            "nonlinear": False,
+            "converged_reason": problem.solver.getConvergedReason(),
+            "iterations": problem.solver.getIterationNumber(),
+        }
 
     primary_name = field_spec[0]["name"] if field_spec else "u"
     uh.name = primary_name
@@ -302,6 +369,8 @@ def solve_transient_heat(
     from ufl import Measure, TestFunction, TrialFunction
 
     params = _physics_params(physics)
+    params["runtime_tag_map_facets"] = tag_map.get("facets", {})
+    params["runtime_tag_map_cells"] = tag_map.get("cells", {})
 
     model_factory = DEFAULT_REGISTRY.get_physics(physics.model)
     model = model_factory()
@@ -309,8 +378,11 @@ def solve_transient_heat(
     field_spec = model.declare_fields(params)
     spaces = model.build_spaces(mesh, field_spec, params)
 
-    matdb = build_matdb(materials, tag_map)
+    matdb = build_matdb(materials, tag_map, variables=_runtime_material_variables(params))
     coeffs = model.build_coefficients(mesh, cell_tags, matdb, params)
+
+    if source_field is None:
+        source_field = params.get("source_field")
     if source_field is not None:
         coeffs["source"] = source_field
 
@@ -323,6 +395,7 @@ def solve_transient_heat(
         "bcs": _dump_bcs(bcs),
         "tag_map": tag_map,
         "ds": measures["ds"],
+        "params": params,
     }
     dirichlet_bcs, a_terms, L_terms = model.build_bcs(spaces["V"], facet_tags, bc_payload)
 
@@ -374,7 +447,8 @@ def solve_transient_heat(
         }
 
     options = _merge_solver_options(solver)
-    last_values: Dict[str, Any] = {}
+
+    weight = _axisymmetric_weight(mesh, params)
 
     for step in range(1, steps + 1):
         t = t0 + step * dt
@@ -387,6 +461,10 @@ def solve_transient_heat(
         for term in L_terms:
             L += term
 
+        if weight is not None:
+            a = weight * a
+            L = weight * L
+
         problem = petsc.LinearProblem(a, L, bcs=dirichlet_bcs, petsc_options=options)
         T_new = problem.solve()
 
@@ -394,7 +472,6 @@ def solve_transient_heat(
             for spec in targets:
                 name = spec["name"]
                 value = _target_value(T_new, dx, cell_tags, spec["tag_id"], mesh.comm, spec["mode"])
-                last_values[name] = value
                 state = target_state[name]
                 state["value"] = value
                 if value is not None and not state["reached"]:
@@ -445,6 +522,12 @@ def solve_electro_thermal(
     if "phase_change" in params and "phase_change" not in heat_params:
         heat_params["phase_change"] = params["phase_change"]
 
+    for key in ("runtime_dimension", "runtime_coordinate_system", "runtime_material_variables"):
+        if key in params and key not in electric_params:
+            electric_params[key] = params[key]
+        if key in params and key not in heat_params:
+            heat_params[key] = params[key]
+
     if "include_joule_heat" not in electric_params:
         electric_params["include_joule_heat"] = True
 
@@ -468,6 +551,7 @@ def solve_electro_thermal(
     if joule_heat is None:
         raise RuntimeError("Electric solve did not produce 'joule_heat' field")
 
+    heat_params["source_field"] = joule_heat
     heat_cfg = PhysicsConfig(model="heat_transient", parameters=heat_params)
     heat_artifact = solve_transient_heat(
         mesh,
